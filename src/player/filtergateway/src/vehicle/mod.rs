@@ -1,6 +1,9 @@
 pub mod dds;
 
 use common::Result;
+use dds::{DdsData, DdsManager};
+use log::{debug, info};
+use tokio::sync::mpsc;
 
 /// Vehicle data management module
 ///
@@ -30,10 +33,9 @@ impl VehicleManager {
     ///
     /// * `Result<()>` - Success or error result
     pub async fn init(&mut self) -> Result<()> {
-        // TODO: Implementation
-        self.dds_manager = dds::DdsManager::new();
+        // Initialize DDS manager
+        self.dds_manager.init().await?;
         self.set_domain_id(100); // Set default domain ID
-                                 // Initialize DDS system
 
         Ok(())
     }
@@ -89,7 +91,7 @@ impl VehicleManager {
     /// # Arguments
     ///
     /// * `domain_id` - Domain ID to use for DDS communication
-    pub fn set_domain_id(&mut self, domain_id: u32) {
+    pub fn set_domain_id(&mut self, domain_id: i32) {
         self.dds_manager.set_domain_id(domain_id);
     }
 }
