@@ -62,6 +62,11 @@ impl VehicleManager {
         Ok(())
     }
 
+    /// 사용 가능한 DDS 타입 목록 조회
+    pub fn list_available_types(&self) -> Vec<String> {
+        self.dds_manager.list_available_types()
+    }
+
     /// Unsubscribes from a vehicle data topic
     ///
     /// # Arguments
