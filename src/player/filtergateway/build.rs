@@ -118,6 +118,73 @@ pub fn generate_struct_file(
     Ok(())
 }
 
+/// 타입 레지스트리 생성 함수
+fn generate_type_registry(out_dir: &str, idl_files: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {
+    let registry_path = Path::new(out_dir).join("dds_type_registry.rs");
+    let mut registry_file = fs::File::create(&registry_path)?;
+    
+    writeln!(registry_file, "// 자동 생성된 DDS 타입 레지스트리")?;
+    writeln!(registry_file, "// build.rs에 의해 생성됨")?;
+    writeln!(registry_file, "")?;
+    writeln!(registry_file, "use dust_dds::topic_definition::type_support::{{DdsType, DdsSerialize, DdsDeserialize}};")?;
+    writeln!(registry_file, "use serde::{{Deserialize, Serialize}};")?;
+    writeln!(registry_file, "use super::dds_types::*;")?;
+    writeln!(registry_file, "use std::sync::Arc;")?;
+    writeln!(registry_file, "use crate::vehicle::dds::listener::GenericTopicListener;")?;
+    writeln!(registry_file, "use crate::vehicle::dds::DdsTopicListener;")?;
+    writeln!(registry_file, "use tokio::sync::mpsc::Sender;")?;
+    writeln!(registry_file, "use crate::vehicle::dds::DdsData;")?;
+    writeln!(registry_file, "")?;
+    
+    // 타입별 리스너 생성 함수
+    writeln!(registry_file, "pub fn create_typed_listener(type_name: &str, topic_name: String, tx: Sender<DdsData>, domain_id: i32) -> Option<Box<dyn DdsTopicListener>> {{")?;
+    writeln!(registry_file, "    match type_name {{")?;
+    
+    // 각 IDL 파일에 대한 매핑 생성
+    for idl_file in idl_files {
+        if let Some(file_stem) = idl_file.file_stem() {
+            let module_name = file_stem.to_string_lossy();
+            
+            // IDL 파일 파싱
+            if let Ok(dds_data) = IdlParser::parse_idl_file(idl_file) {
+                let struct_name = &dds_data.name;
+                
+                // 타입 매핑 추가
+                writeln!(registry_file, "        \"{}\" => {{", struct_name)?;
+                writeln!(registry_file, "            let listener = Box::new(GenericTopicListener::<{}::{}>::new(", module_name, struct_name)?;
+                writeln!(registry_file, "                topic_name,")?;
+                writeln!(registry_file, "                type_name.to_string(),")?;
+                writeln!(registry_file, "                tx,")?;
+                writeln!(registry_file, "                domain_id,")?;
+                writeln!(registry_file, "            ));")?;
+                writeln!(registry_file, "            Some(listener)")?;
+                writeln!(registry_file, "        }},")?;
+            }
+        }
+    }
+    
+    // 기본 매핑 종료
+    writeln!(registry_file, "        _ => None,")?;
+    writeln!(registry_file, "    }}")?;
+    writeln!(registry_file, "}}")?;
+    
+    // 가능한 타입 목록
+    writeln!(registry_file, "")?;
+    writeln!(registry_file, "pub fn get_available_types() -> Vec<String> {{")?;
+    writeln!(registry_file, "    vec![")?;
+    
+    for idl_file in idl_files {
+        if let Ok(dds_data) = IdlParser::parse_idl_file(idl_file) {
+            writeln!(registry_file, "        \"{}\".to_string(),", dds_data.name)?;
+        }
+    }
+    
+    writeln!(registry_file, "    ]")?;
+    writeln!(registry_file, "}}")?;
+    
+    Ok(())
+}
+
 /// IDL 타입을 Rust 타입으로 변환
 fn idl_to_rust_type(idl_type: &str) -> &str {
     match idl_type {
@@ -346,6 +413,66 @@ fn load_idl_file(path: &Path) -> Result<DdsData, Box<dyn std::error::Error>> {
     IdlParser::parse_idl_file(path)
 }
 
+/// 타입 메타데이터 레지스트리 생성
+fn generate_type_metadata_registry(out_dir: &str, idl_files: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {
+    let registry_path = Path::new(out_dir).join("dds_type_metadata.rs");
+    let mut registry_file = fs::File::create(&registry_path)?;
+    
+    writeln!(registry_file, "// 자동 생성된 DDS 타입 메타데이터")?;
+    writeln!(registry_file, "use std::collections::HashMap;")?;
+    writeln!(registry_file, "")?;
+    writeln!(registry_file, "pub struct TypeMetadata {{")?;
+    writeln!(registry_file, "    pub name: String,")?;
+    writeln!(registry_file, "    pub module: String,")?;
+    writeln!(registry_file, "    pub fields: HashMap<String, String>,")?;
+    writeln!(registry_file, "}}")?;
+    writeln!(registry_file, "")?;
+    
+    writeln!(registry_file, "pub fn get_type_metadata() -> HashMap<String, TypeMetadata> {{")?;
+    writeln!(registry_file, "    let mut metadata = HashMap::new();")?;
+    writeln!(registry_file, "    let mut fields;")?;
+    
+    // 각 타입에 대한 메타데이터 추가
+    for idl_file in idl_files {
+        if let Some(file_stem) = idl_file.file_stem() {
+            let module_name = file_stem.to_string_lossy();
+            
+            // IDL 파일 파싱
+            if let Ok(dds_data) = IdlParser::parse_idl_file(idl_file) {
+                let struct_name = &dds_data.name;
+                
+                writeln!(registry_file, "    fields = HashMap::new();")?;
+                
+                // 필드 정보 추가
+                for (field_name, field_type) in &dds_data.fields {
+                    let rust_type = idl_to_rust_type(field_type);
+                    writeln!(
+                        registry_file,
+                        "    fields.insert(\"{}\".to_string(), \"{}\".to_string());",
+                        field_name, rust_type
+                    )?;
+                }
+                
+                // 메타데이터 객체 추가
+                writeln!(
+                    registry_file,
+                    "    metadata.insert(\"{}\".to_string(), TypeMetadata {{",
+                    struct_name
+                )?;
+                writeln!(registry_file, "        name: \"{}\".to_string(),", struct_name)?;
+                writeln!(registry_file, "        module: \"{}\".to_string(),", module_name)?;
+                writeln!(registry_file, "        fields,")?;
+                writeln!(registry_file, "    }});")?;
+            }
+        }
+    }
+    
+    writeln!(registry_file, "    metadata")?;
+    writeln!(registry_file, "}}")?;
+    
+    Ok(())
+}
+
 /// settings.yaml에서 DDS 설정 로드 함수 (빌드 시)
 fn load_dds_settings() -> Result<(PathBuf, i32, Option<String>), Box<dyn std::error::Error>> {
     // 기본값 설정 (설정 파일이 없는 경우 사용)
@@ -503,6 +630,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if idl_dir.exists() {
         let idl_files = collect_idl_files(&idl_dir)?;
+
+        generate_type_metadata_registry(&out_dir, &idl_files)?;
+        // IDL 파일을 기반으로 DDS 타입 레지스트리 생성
+        // generate_type_registry(&out_dir, &idl_files)?;
         writeln!(info_file, "Found IDL Files: {}", idl_files.len())?;
         for file in &idl_files {
             writeln!(info_file, "  - {:?}", file)?;
@@ -510,6 +641,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         writeln!(info_file, "IDL Directory does not exist")?;
     }
+
+    
 
     Ok(())
 }

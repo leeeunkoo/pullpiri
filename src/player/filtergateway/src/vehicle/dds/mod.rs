@@ -48,6 +48,72 @@ impl DdsManager {
             domain_id: 0,
         }
     }
+    /// 런타임에 IDL 디렉토리 스캔 및 처리
+    pub async fn scan_idl_directory(&mut self, dir: &Path) -> Result<Vec<String>> {
+        info!("Scanning IDL directory at runtime: {:?}", dir);
+        let mut found_types = Vec::new();
+        
+        // 디렉토리 존재 확인
+        if !dir.exists() {
+            return Ok(found_types);
+        }
+        
+        // IDL 파일 검색
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.is_file() && path.extension().map_or(false, |ext| ext == "idl") {
+                if let Some(stem) = path.file_stem() {
+                    let type_name = stem.to_string_lossy().to_string();
+                    found_types.push(type_name);
+                }
+            }
+        }
+        
+        info!("Found {} IDL types at runtime", found_types.len());
+        Ok(found_types)
+    }
+    /// 타입명에 맞는 특화된 리스너 생성
+    pub async fn create_typed_listener(
+        &mut self,
+        topic_name: String,
+        data_type_name: String,
+    ) -> Result<()> {
+        // 이미 존재하는 리스너인지 확인
+        if self.listeners.contains_key(&topic_name) {
+            return Ok(());
+        }
+        
+        // 레지스트리를 통한 타입별 리스너 생성 시도
+        if let Some(mut typed_listener) = dds_registry::create_typed_listener(
+            &data_type_name,
+            topic_name.clone(),
+            self.tx.clone(),
+            self.domain_id,
+        ) {
+            // 리스너 시작
+            typed_listener
+                .start()
+                .await
+                .map_err(|e| anyhow!("Failed to start typed listener: {:?}", e))?;
+                
+            info!("Started typed listener for {} with specific type {}", topic_name, data_type_name);
+            
+            // 리스너 맵에 추가
+            self.listeners.insert(topic_name, typed_listener);
+            return Ok(());
+        }
+        
+        // 타입별 리스너를 찾지 못한 경우 일반 리스너 생성
+        warn!("No specific type handler for '{}', using generic listener", data_type_name);
+        self.create_listener(topic_name, data_type_name).await
+    }
+    
+    /// 사용 가능한 DDS 타입 목록 조회
+    pub fn list_available_types(&self) -> Vec<String> {
+        dds_registry::get_available_types()
+    }
 
     /// DDS 도메인 ID 설정
     pub fn set_domain_id(&mut self, domain_id: i32) {
@@ -177,6 +243,36 @@ pub mod dds_types {
         concat! {
             env!("OUT_DIR"),
             "/dds_types.rs"
+        }
+    }
+}
+// Include generated type registry
+#[allow(unused)]
+pub mod dds_registry {
+    use super::*;
+    use crate::vehicle::dds::listener::DdsTopicListener;
+    use tokio::sync::mpsc::Sender;
+    
+    // Fallback implementation when file doesn't exist
+    pub fn create_typed_listener(
+        _type_name: &str,
+        _topic_name: String,
+        _tx: Sender<DdsData>,
+        _domain_id: i32,
+    ) -> Option<Box<dyn DdsTopicListener>> {
+        None
+    }
+    
+    pub fn get_available_types() -> Vec<String> {
+        Vec::new()
+    }
+    
+    // Try to include the generated code if available
+    #[cfg(not(debug_assertions))]
+    include! {
+        concat! {
+            env!("OUT_DIR"),
+            "/dds_type_registry.rs"
         }
     }
 }
