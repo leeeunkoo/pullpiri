@@ -54,4 +54,20 @@ mod tests {
         manager.unsubscribe_topic("GeneratedTestTopic".to_string()).await?;
         Ok(())
     }
+    #[tokio::test]
+    async fn test_filtergateway_initialization() -> Result<()> {
+        // Initialize logging for tests
+        tracing_subscriber::fmt::init();
+
+        // Create dummy channels for DDS data
+        let (tx_dds, rx_dds): (Sender<DdsData>, Receiver<DdsData>) = channel(100);
+
+        // Call the initialization function which sets up the gateway services.
+        initialize(tx_dds.clone(), rx_dds).await?;
+
+        // If initialize returns Ok, initialization is successful.
+        Ok(())
+    }
+
+
 }

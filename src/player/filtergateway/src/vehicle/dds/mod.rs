@@ -168,7 +168,7 @@ impl DdsManager {
         Ok(())
     }
 
-    /// 리스너 제거
+
     /// 리스너 제거
     pub async fn remove_listener(&mut self, topic_name: &str) -> Result<()> {
         

@@ -64,15 +64,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let (tx_dds, rx_dds): (Sender<DdsData>, Receiver<DdsData>) = channel(100);
-  
-    // Initialize DDS manager
-    let mut vehicle_manager = vehicle::VehicleManager::new(tx_dds.clone());
-    vehicle_manager.init().await?;
-    vehicle_manager.set_domain_id(100); // Set default domain ID
-    
-    
-    
-    
+
     // Initialize the application
     initialize(tx_dds.clone(), rx_dds).await?;
     
