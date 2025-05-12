@@ -25,7 +25,6 @@ pub struct DdsData {
 }
 
 
-
 /// DDS 관리자 - 여러 DDS 리스너를 관리
 pub struct DdsManager {
     /// 활성 리스너 맵 (토픽 이름 → 리스너)
@@ -36,6 +35,7 @@ pub struct DdsManager {
     rx: Mutex<Receiver<DdsData>>,
     /// DDS 도메인 ID
     domain_id: i32,
+
 }
 
 impl DdsManager {
@@ -146,6 +146,7 @@ impl DdsManager {
         // 관련 IDL 파일 검색
         // let idl_path = self.find_idl_for_type(&data_type_name)?;
 
+
         // 리스너 생성
         let mut listener = create_idl_listener(
             topic_name.clone(),
@@ -153,6 +154,7 @@ impl DdsManager {
             self.tx.clone(),
             self.domain_id,
         );
+
 
         // 리스너 시작
         listener
@@ -167,7 +169,9 @@ impl DdsManager {
     }
 
     /// 리스너 제거
+    /// 리스너 제거
     pub async fn remove_listener(&mut self, topic_name: &str) -> Result<()> {
+        
         if let Some(mut listener) = self.listeners.remove(topic_name) {
             listener
                 .stop()
@@ -175,8 +179,10 @@ impl DdsManager {
                 .map_err(|e| anyhow!("Failed to stop listener: {:?}", e))?;
         }
 
+
         Ok(())
     }
+
 
     /// 모든 리스너 중지
     pub async fn stop_all(&mut self) -> Result<()> {

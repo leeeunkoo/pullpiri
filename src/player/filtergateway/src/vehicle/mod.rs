@@ -62,6 +62,7 @@ impl VehicleManager {
         Ok(())
     }
 
+
     /// 사용 가능한 DDS 타입 목록 조회
     pub fn list_available_types(&self) -> Vec<String> {
         self.dds_manager.list_available_types()
@@ -96,6 +97,7 @@ impl VehicleManager {
     /// # Arguments
     ///
     /// * `domain_id` - Domain ID to use for DDS communication
+    
     pub fn set_domain_id(&mut self, domain_id: i32) {
         self.dds_manager.set_domain_id(domain_id);
     }
