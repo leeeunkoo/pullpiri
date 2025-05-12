@@ -14,8 +14,10 @@ mod listener;
 
 // Re-export the modules
 pub use listener::{create_idl_listener, DdsTopicListener};
+
+use crate::grpc::receiver;
 // DdsData structure to represent parsed IDL data
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug,  Clone, Serialize, Deserialize)]
 pub struct DdsData {
     pub name: String,
     pub value: String,
@@ -38,14 +40,14 @@ pub struct DdsManager {
 
 impl DdsManager {
     /// 새 DDS 관리자 생성
-    pub fn new() -> Self {
-        let (tx, rx) = mpsc::channel(100);
+    pub fn new(tx:Sender<DdsData> ) -> Self {
+        // let (tx, rx) = mpsc::channel(100);
 
         Self {
             listeners: HashMap::new(),
             tx,
-            rx: Mutex::new(rx),
-            domain_id: 0,
+            rx: Mutex::new(mpsc::channel(100).1),
+            domain_id: 100,
         }
     }
     /// 런타임에 IDL 디렉토리 스캔 및 처리

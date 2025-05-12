@@ -3,7 +3,7 @@ pub mod dds;
 use common::Result;
 use dds::{DdsData, DdsManager};
 use log::{debug, info};
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, Receiver, Sender};
 
 /// Vehicle data management module
 ///
@@ -19,9 +19,9 @@ impl VehicleManager {
     /// # Returns
     ///
     /// A new VehicleManager instance
-    pub fn new() -> Self {
+    pub fn new(tx: Sender<DdsData> ) -> Self {
         Self {
-            dds_manager: dds::DdsManager::new(),
+            dds_manager: dds::DdsManager::new(tx),
         }
     }
 

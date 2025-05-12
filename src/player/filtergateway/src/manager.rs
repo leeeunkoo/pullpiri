@@ -35,11 +35,11 @@ impl FilterGatewayManager {
     /// # Returns
     ///
     /// A new FilterGatewayManager instance
-    pub fn new(rx: mpsc::Receiver<Scenario>) -> Self {
-        let (tx_dds, rx_dds) = mpsc::channel::<DdsData>(10);
+    pub fn new(rx_grpc: mpsc::Receiver<Scenario>, tx_dds: mpsc::Sender<DdsData>,rx_dds: mpsc::Receiver<DdsData>) -> Self {
+        // let (tx_dds, rx_dds) = mpsc::channel::<DdsData>(10);
         let sender = Arc::new(FilterGatewaySender::new());
         Self {
-            rx_grpc: rx,
+            rx_grpc: rx_grpc,
             tx_dds: tx_dds,
             rx_dds: Arc::new(Mutex::new(rx_dds)),
             filters: Arc::new(Mutex::new(Vec::new())),
