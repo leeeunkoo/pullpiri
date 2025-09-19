@@ -26,11 +26,16 @@
 //! let result = state_machine.process_state_change(state_change);
 //! ```
 
+use crate::model::ModelStateManager;
+use crate::package::PackageStateManager;
+use crate::storage::StateStorage;
 use crate::types::{ActionCommand, HealthStatus, ResourceState, StateTransition, TransitionResult};
+use common::monitoringserver::ContainerList;
 use common::statemanager::{
     ErrorCode, ModelState, PackageState, ResourceType, ScenarioState, StateChange,
 };
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
@@ -429,6 +434,148 @@ impl StateMachine {
 
         self.transition_tables
             .insert(ResourceType::Model, model_transitions);
+    }
+
+    // ========================================
+    // CONTAINER AND STATE PROCESSING
+    // ========================================
+
+    /// Process container list and update model states
+    /// This method implements the logic required by LLD_SM_model.md
+    pub async fn process_container_list(
+        &mut self,
+        container_list: ContainerList,
+        storage: Arc<dyn StateStorage>,
+    ) -> common::Result<()> {
+        println!(
+            "Processing container list with {} containers",
+            container_list.containers.len()
+        );
+
+        // Extract model states from container list
+        let model_states = ModelStateManager::extract_model_states_from_containers(&container_list);
+
+        println!("Extracted model states: {:?}", model_states);
+
+        // Update each model state and check for changes
+        for (model_name, new_state) in model_states {
+            // Get current state from storage
+            let current_state = storage.get_model_state(&model_name).await?;
+
+            // Check if state changed
+            if current_state.as_ref() != Some(&new_state) {
+                println!(
+                    "Model '{}' state changed from {:?} to {:?}",
+                    model_name, current_state, new_state
+                );
+
+                // Save new model state to ETCD
+                storage.put_model_state(&model_name, new_state).await?;
+
+                // Trigger package state evaluation for packages containing this model
+                self.check_package_states_for_model(&model_name, storage.clone())
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Check and update package states when a model state changes
+    /// This method implements the cascading logic required by LLD_SM_package.md
+    async fn check_package_states_for_model(
+        &mut self,
+        model_name: &str,
+        storage: Arc<dyn StateStorage>,
+    ) -> common::Result<()> {
+        // Get all packages and their models
+        let package_states = storage.get_all_package_states().await?;
+
+        for (package_name, _) in package_states {
+            // Get models for this package
+            let package_models = storage.get_package_models(&package_name).await?;
+
+            // Check if this package contains the changed model
+            if package_models.contains(&model_name.to_string()) {
+                self.evaluate_and_update_package_state(
+                    &package_name,
+                    &package_models,
+                    storage.clone(),
+                )
+                .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Evaluate and update package state based on model states
+    async fn evaluate_and_update_package_state(
+        &mut self,
+        package_name: &str,
+        model_names: &[String],
+        storage: Arc<dyn StateStorage>,
+    ) -> common::Result<()> {
+        // Get current model states
+        let mut model_states = HashMap::new();
+        for model_name in model_names {
+            if let Some(state) = storage.get_model_state(model_name).await? {
+                model_states.insert(model_name.clone(), state);
+            }
+        }
+
+        // Evaluate new package state
+        let new_package_state = PackageStateManager::evaluate_package_state_from_map(
+            package_name,
+            model_names,
+            &model_states,
+        );
+
+        // Get current package state
+        let current_package_state = storage.get_package_state(package_name).await?;
+
+        // Check if package state changed
+        if current_package_state.as_ref() != Some(&new_package_state) {
+            println!(
+                "Package '{}' state changed from {:?} to {:?}",
+                package_name, current_package_state, new_package_state
+            );
+
+            // Save new package state to ETCD
+            storage
+                .put_package_state(package_name, new_package_state)
+                .await?;
+
+            // Check if ActionController notification is needed
+            if PackageStateManager::requires_action_controller_notification(new_package_state) {
+                self.notify_action_controller(package_name, new_package_state)
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Notify ActionController about package error state
+    async fn notify_action_controller(
+        &self,
+        package_name: &str,
+        state: PackageState,
+    ) -> common::Result<()> {
+        println!(
+            "Notifying ActionController: package '{}' is in state {:?}",
+            package_name, state
+        );
+
+        // TODO: Implement gRPC call to ActionController for reconcile request
+        // This would send a reconcile request when package is in error state
+        // For now, just log the notification
+        println!(
+            "ActionController notification sent for package '{}'",
+            package_name
+        );
+
+        Ok(())
     }
 
     // ========================================

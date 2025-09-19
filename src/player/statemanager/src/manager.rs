@@ -14,6 +14,7 @@
 //! (Scenario, Package, Model, Volume, Network, Node).
 
 use crate::state_machine::StateMachine;
+use crate::storage::{EtcdStateStorage, StateStorage};
 use crate::types::{ActionCommand, TransitionResult};
 use common::monitoringserver::ContainerList;
 
@@ -46,6 +47,9 @@ use tokio::task;
 pub struct StateManagerManager {
     /// State machine for processing state transitions
     state_machine: Arc<Mutex<StateMachine>>,
+
+    /// Storage backend for persisting state information
+    storage: Arc<dyn StateStorage>,
 
     /// Channel receiver for container status updates from nodeagent.
     ///
@@ -81,6 +85,7 @@ impl StateManagerManager {
     ) -> Self {
         Self {
             state_machine: Arc::new(Mutex::new(StateMachine::new())),
+            storage: Arc::new(EtcdStateStorage::new()),
             rx_container: Arc::new(Mutex::new(rx_container)),
             rx_state_change: Arc::new(Mutex::new(rx_state_change)),
         }
@@ -422,70 +427,37 @@ impl StateManagerManager {
     /// triggers appropriate state transitions based on container health.
     ///
     /// # Arguments
+    /// Process ContainerList updates from nodeagent and update model/package states
+    ///
+    /// This method implements the core logic required by LLD_SM_model.md and LLD_SM_package.md:
+    /// 1. Extract model states from container states
+    /// 2. Update model states in ETCD
+    /// 3. Trigger cascading package state updates
+    ///
+    /// # Arguments
     /// * `container_list` - ContainerList message with node and container status
     ///
     /// # Processing Steps
     /// 1. Analyze container health and status changes
-    /// 2. Identify resources affected by container changes
-    /// 3. Trigger state transitions for failed or recovered containers
-    /// 4. Update resource health status and monitoring data
+    /// 2. Map containers to models and evaluate model states  
+    /// 3. Update model states in ETCD if changed
+    /// 4. Trigger cascading package state evaluation
+    /// 5. Update package states and notify ActionController if needed
     async fn process_container_list(&self, container_list: ContainerList) {
         println!("=== PROCESSING CONTAINER LIST ===");
         println!("  Node Name: {}", container_list.node_name);
         println!("  Container Count: {}", container_list.containers.len());
 
-        // Process each container for health status analysis
-        for (i, container) in container_list.containers.iter().enumerate() {
-            // container.names is a Vec<String>, so join them for display
-            let container_names = container.names.join(", ");
-            println!("  Container {}: {}", i + 1, container_names);
-            println!("    Image: {}", container.image);
-            println!("    State: {:?}", container.state);
-            println!("    ID: {}", container.id);
-
-            // container.config is a HashMap, not an Option
-            if !container.config.is_empty() {
-                println!("    Config: {:?}", container.config);
-            }
-
-            // Process container annotations if available
-            if !container.annotation.is_empty() {
-                println!("    Annotations: {:?}", container.annotation);
-            }
-
-            // TODO: Implement comprehensive container processing:
-            //
-            // 1. HEALTH STATUS ANALYSIS
-            //    - Analyze container state changes (running -> failed, etc.)
-            //    - Check exit codes for failure conditions
-            //    - Monitor resource usage and performance metrics
-            //    - Detect container restart loops and crash patterns
-            //
-            // 2. RESOURCE MAPPING
-            //    - Map containers to managed resources (scenarios, packages, models)
-            //    - Identify which resources are affected by container changes
-            //    - Determine impact on dependent resources
-            //
-            // 3. STATE TRANSITION TRIGGERS
-            //    - Trigger state transitions for failed containers
-            //    - Handle container recovery and restart scenarios
-            //    - Update resource states based on container health
-            //    - Escalate to recovery management for critical failures
-            //
-            // 4. HEALTH STATUS UPDATES
-            //    - Update resource health status based on container state
-            //    - Generate health check events and notifications
-            //    - Update monitoring and observability data
-            //    - Maintain health history for trend analysis
-            //
-            // 5. ASIL COMPLIANCE MONITORING
-            //    - Monitor ASIL-critical containers for safety violations
-            //    - Generate alerts for safety-critical container failures
-            //    - Implement timing constraints for container recovery
-            //    - Ensure safety systems remain operational
+        // Use the new state machine method for container processing
+        let mut state_machine = self.state_machine.lock().await;
+        if let Err(e) = state_machine
+            .process_container_list(container_list, self.storage.clone())
+            .await
+        {
+            eprintln!("Failed to process container list: {:?}", e);
         }
 
-        println!("  Status: Container list processing completed (implementation pending)");
+        println!("  Status: Container list processing completed");
         println!("=====================================");
     }
 
@@ -591,6 +563,7 @@ impl StateManagerManager {
     fn clone_for_task(&self) -> StateManagerManager {
         StateManagerManager {
             state_machine: Arc::clone(&self.state_machine),
+            storage: Arc::clone(&self.storage),
             rx_container: Arc::clone(&self.rx_container),
             rx_state_change: Arc::clone(&self.rx_state_change),
         }
