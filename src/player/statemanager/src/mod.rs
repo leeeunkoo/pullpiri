@@ -14,10 +14,12 @@ pub mod package;
 pub mod state_machine;
 pub mod storage;
 pub mod types;
+pub mod utils;
 
 // Re-export main types for easier access
 pub use manager::StateManagerManager;
-pub use state_machine::{StateMachine, TransitionResult, ResourceState};
-pub use storage::{StateStorage, EtcdStateStorage};
 pub use model::ModelStateManager;
 pub use package::PackageStateManager;
+pub use state_machine::{ResourceState, StateMachine, TransitionResult};
+pub use storage::{EtcdStateStorage, StateStorage};
+pub use utils::{ActionControllerClient, ActionControllerService};

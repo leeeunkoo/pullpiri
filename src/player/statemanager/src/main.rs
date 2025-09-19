@@ -26,6 +26,7 @@ pub mod package;
 pub mod state_machine;
 pub mod storage;
 pub mod types;
+pub mod utils;
 
 /// Launches the StateManagerManager in an asynchronous task.
 ///

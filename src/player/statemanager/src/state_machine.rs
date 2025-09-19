@@ -30,6 +30,7 @@ use crate::model::ModelStateManager;
 use crate::package::PackageStateManager;
 use crate::storage::StateStorage;
 use crate::types::{ActionCommand, HealthStatus, ResourceState, StateTransition, TransitionResult};
+use crate::utils::ActionControllerService;
 use common::monitoringserver::ContainerList;
 use common::statemanager::{
     ErrorCode, ModelState, PackageState, ResourceType, ScenarioState, StateChange,
@@ -111,6 +112,9 @@ pub struct StateMachine {
 
     /// Action command sender for async execution
     action_sender: Option<mpsc::UnboundedSender<ActionCommand>>,
+
+    /// ActionController client for reconcile requests
+    action_controller: Option<Arc<dyn ActionControllerService>>,
 }
 
 impl StateMachine {
@@ -132,6 +136,7 @@ impl StateMachine {
             resource_states: HashMap::new(),
             backoff_timers: HashMap::new(),
             action_sender: None,
+            action_controller: None,
         };
 
         // Initialize transition tables for each resource type
@@ -147,6 +152,11 @@ impl StateMachine {
         let (sender, receiver) = mpsc::unbounded_channel();
         self.action_sender = Some(sender);
         receiver
+    }
+
+    /// Set ActionController client for reconcile requests
+    pub fn set_action_controller(&mut self, client: Arc<dyn ActionControllerService>) {
+        self.action_controller = Some(client);
     }
 
     // ========================================
@@ -567,13 +577,25 @@ impl StateMachine {
             package_name, state
         );
 
-        // TODO: Implement gRPC call to ActionController for reconcile request
-        // This would send a reconcile request when package is in error state
-        // For now, just log the notification
-        println!(
-            "ActionController notification sent for package '{}'",
-            package_name
-        );
+        if let Some(client) = &self.action_controller {
+            match client.send_reconcile_request(package_name, state).await {
+                Ok(_) => {
+                    println!(
+                        "ActionController notification sent successfully for package '{}'",
+                        package_name
+                    );
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Failed to notify ActionController for package '{}': {:?}",
+                        package_name, e
+                    );
+                    return Err(format!("ActionController notification failed: {:?}", e).into());
+                }
+            }
+        } else {
+            println!("ActionController client not configured - notification skipped");
+        }
 
         Ok(())
     }

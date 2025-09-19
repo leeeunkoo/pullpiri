@@ -16,6 +16,7 @@
 use crate::state_machine::StateMachine;
 use crate::storage::{EtcdStateStorage, StateStorage};
 use crate::types::{ActionCommand, TransitionResult};
+use crate::utils::ActionControllerClient;
 use common::monitoringserver::ContainerList;
 
 use common::statemanager::{
@@ -116,12 +117,22 @@ impl StateManagerManager {
             state_machine.initialize_action_executor()
         };
 
+        // Initialize ActionController client
+        {
+            let mut state_machine = self.state_machine.lock().await;
+            let action_controller = ActionControllerClient::new(
+                "http://localhost:47001".to_string(), // Default ActionController endpoint
+            );
+            state_machine.set_action_controller(std::sync::Arc::new(action_controller));
+        }
+
         // Start the async action executor
         tokio::spawn(async move {
             run_action_executor(action_receiver).await;
         });
 
         println!("State machine initialized with transition tables for Scenario, Package, and Model resources");
+        println!("ActionController client initialized for reconcile requests");
         println!("Async action executor started for non-blocking action processing");
 
         // TODO: Add comprehensive initialization logic:
