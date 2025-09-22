@@ -84,21 +84,21 @@ pub mod monitoringserver {
 pub mod nodeagent {
     tonic::include_proto!("nodeagent");
 
-//     pub fn open_server() -> String {
-//         super::open_server(47004)
-//     }
+    //     pub fn open_server() -> String {
+    //         super::open_server(47004)
+    //     }
 
-//     pub fn open_guest_server() -> String {
-//         super::open_guest_server(47004)
-//     }
+    //     pub fn open_guest_server() -> String {
+    //         super::open_guest_server(47004)
+    //     }
 
-//     pub fn connect_server() -> String {
-//         super::connect_server(47004)
-//     }
+    //     pub fn connect_server() -> String {
+    //         super::connect_server(47004)
+    //     }
 
-//     pub fn connect_guest_server() -> String {
-//         super::connect_guest_server(47004)
-//     }
+    //     pub fn connect_guest_server() -> String {
+    //         super::connect_guest_server(47004)
+    //     }
 }
 
 pub mod policymanager {
