@@ -2096,6 +2096,120 @@ mod tests {
     }
 }
 
+/// Integration tests for StateManager Model functionality
+///
+/// These tests demonstrate the complete workflow specified in the LLD:
+/// - Model state evaluation based on container states
+/// - Package state evaluation based on model states  
+/// - Cascading state transitions
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use std::collections::HashMap;
+    
+    /// Integration test demonstrating complete Model → Package cascading workflow
+    #[test]
+    fn test_model_to_package_cascading_workflow() {
+        println!("\n=== Integration Test: Model → Package Cascading ===");
+        
+        let state_machine = StateMachine::new();
+        
+        // Test scenario: Model with mixed container states
+        println!("\n1. Testing Model state evaluation:");
+        
+        let mut container_states = HashMap::new();
+        container_states.insert("container1".to_string(), "running".to_string());
+        container_states.insert("container2".to_string(), "dead".to_string()); // Dead container
+        
+        let model_state = state_machine.evaluate_model_state_from_containers(
+            "test_package.model1", 
+            &container_states
+        );
+        
+        println!("  → Model state evaluated as: {:?}", model_state);
+        assert_eq!(model_state, ModelState::Failed, "Model should be Failed due to dead container");
+        
+        println!("\n2. Testing Package state evaluation:");
+        
+        let mut model_states = HashMap::new();
+        model_states.insert("test_package.model1".to_string(), ModelState::Failed);
+        model_states.insert("test_package.model2".to_string(), ModelState::Running);
+        model_states.insert("test_package.model3".to_string(), ModelState::Running);
+        
+        let package_state = state_machine.evaluate_package_state_from_models(
+            "test_package",
+            &model_states
+        );
+        
+        println!("  → Package state evaluated as: {:?}", package_state);
+        assert_eq!(package_state, PackageState::Degraded, "Package should be Degraded due to one failed model");
+        
+        println!("\n3. Testing ActionController notification scenario:");
+        
+        // Test error state → ActionController notification scenario
+        let mut error_model_states = HashMap::new();
+        error_model_states.insert("test_package.model1".to_string(), ModelState::Failed);
+        error_model_states.insert("test_package.model2".to_string(), ModelState::Failed);
+        error_model_states.insert("test_package.model3".to_string(), ModelState::Failed);
+        
+        let error_package_state = state_machine.evaluate_package_state_from_models(
+            "test_package",
+            &error_model_states
+        );
+        
+        println!("  → All models failed, package state: {:?}", error_package_state);
+        assert_eq!(error_package_state, PackageState::Error, "Package should be Error when all models failed");
+        
+        println!("  → This would trigger ActionController reconcile in real deployment");
+        println!("\n=== Integration Test Completed Successfully ===");
+    }
+    
+    /// Test the package name extraction logic
+    #[test]
+    fn test_package_name_extraction() {
+        let state_machine = StateMachine::new();
+        
+        // Test dot notation
+        let package_name = state_machine.extract_package_name_from_model("my_package.my_model");
+        assert_eq!(package_name, Some("my_package".to_string()));
+        
+        // Test fallback for simple names  
+        let package_name = state_machine.extract_package_name_from_model("simple_model");
+        assert_eq!(package_name, Some("simple_model_package".to_string()));
+        
+        // Test nested packages
+        let package_name = state_machine.extract_package_name_from_model("system.core.database_model");
+        assert_eq!(package_name, Some("system".to_string()));
+    }
+    
+    /// Test state evaluation edge cases
+    #[test] 
+    fn test_state_evaluation_edge_cases() {
+        let state_machine = StateMachine::new();
+        
+        // Test empty containers
+        let empty_containers = HashMap::new();
+        let model_state = state_machine.evaluate_model_state_from_containers("test_model", &empty_containers);
+        assert_eq!(model_state, ModelState::Pending);
+        
+        // Test empty models  
+        let empty_models = HashMap::new();
+        let package_state = state_machine.evaluate_package_state_from_models("test_package", &empty_models);
+        assert_eq!(package_state, PackageState::Initializing);
+        
+        // Test single container/model scenarios
+        let mut single_container = HashMap::new();
+        single_container.insert("only_container".to_string(), "running".to_string());
+        let model_state = state_machine.evaluate_model_state_from_containers("test_model", &single_container);
+        assert_eq!(model_state, ModelState::Running);
+        
+        let mut single_model = HashMap::new();
+        single_model.insert("only_model".to_string(), ModelState::Running);
+        let package_state = state_machine.evaluate_package_state_from_models("test_package", &single_model);
+        assert_eq!(package_state, PackageState::Running);
+    }
+}
+
 /// Default implementation that creates a new StateMachine
 ///
 /// Provides a convenient way to create a StateMachine with default
