@@ -26,6 +26,10 @@ service StateManagerConnection {
   //rpc TriggerStateTransition (TriggerStateTransitionRequest) returns (StateChangeResponse);
   //rpc ForceSynchronization (ForceSynchronizationRequest) returns (StateChangeResponse);
   
+  // Hierarchical state management operations
+  rpc UpdateContainerState (UpdateContainerStateRequest) returns (StateResponse);
+  rpc UpdateModelState (UpdateModelStateRequest) returns (StateResponse);
+  
   // Recovery management operations
   //rpc TriggerRecovery (TriggerRecoveryRequest) returns (RecoveryResponse);
   //rpc AbortRecovery (AbortRecoveryRequest) returns (RecoveryResponse);
@@ -161,6 +165,31 @@ message StateChangeResponse {
   int64 timestamp_ns = 3;
   ErrorCode error_code = 4;
   string error_details = 5;
+}
+
+// =============================================================================
+// Hierarchical State Management Messages
+// =============================================================================
+
+message UpdateContainerStateRequest {
+  string container_id = 1;
+  string state = 2;
+  int64 timestamp = 3;
+  string node_name = 4;
+}
+
+message UpdateModelStateRequest {
+  string model_id = 1;
+  string state = 2;
+  repeated string container_ids = 3;
+  int64 timestamp = 4;
+}
+
+message StateResponse {
+  bool success = 1;
+  string message = 2;
+  int32 error_code = 3;
+  string details = 4;
 }
 
 //message ResourceStateRequest {

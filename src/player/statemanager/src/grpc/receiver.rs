@@ -17,6 +17,11 @@ use common::statemanager::{
     state_manager_connection_server::StateManagerConnection,
     Action,
     ErrorCode,
+    ResourceType,
+    StateChange,
+    StateChangeResponse,
+    StateResponse,
+
     // // State Query API message types
     // ResourceStateRequest, ResourceStateResponse,
     // ResourceStateHistoryRequest, ResourceStateHistoryResponse,
@@ -33,9 +38,10 @@ use common::statemanager::{
     // StateChangeSubscriptionRequest, StateChangeEvent,
     // AcknowledgeAlertRequest, AlertResponse,
     // GetPendingAlertsRequest, GetPendingAlertsResponse,
-    ResourceType,
-    StateChange,
-    StateChangeResponse,
+
+    // Hierarchical State Management API message types
+    UpdateContainerStateRequest,
+    UpdateModelStateRequest,
 };
 use tokio::sync::mpsc;
 use tonic::{Request, Status};
@@ -229,8 +235,164 @@ impl StateManagerConnection for StateManagerReceiver {
             }
         }
     }
-}
 
+    /// Handles container state update requests.
+    ///
+    /// This method receives container state updates from nodeagent or other components
+    /// and triggers hierarchical state management updates through the state machine.
+    ///
+    /// # Arguments
+    /// * `request` - gRPC request containing container state update information
+    ///
+    /// # Returns
+    /// * `Result<tonic::Response<StateResponse>, Status>` - Success confirmation or error
+    ///
+    /// # Processing Flow
+    /// 1. Extract UpdateContainerStateRequest from gRPC request
+    /// 2. Validate container ID and state information
+    /// 3. Trigger hierarchical state updates via state machine
+    /// 4. Return detailed response with success/error information
+    async fn update_container_state(
+        &self,
+        request: tonic::Request<UpdateContainerStateRequest>,
+    ) -> Result<tonic::Response<StateResponse>, Status> {
+        let req = request.into_inner();
+
+        // Validate request
+        if req.container_id.is_empty() {
+            return Ok(tonic::Response::new(StateResponse {
+                success: false,
+                message: "Container ID cannot be empty".to_string(),
+                error_code: ErrorCode::InvalidRequest as i32,
+                details: "Container ID is required for state updates".to_string(),
+            }));
+        }
+
+        if req.state.is_empty() {
+            return Ok(tonic::Response::new(StateResponse {
+                success: false,
+                message: "Container state cannot be empty".to_string(),
+                error_code: ErrorCode::InvalidRequest as i32,
+                details: "Container state value is required".to_string(),
+            }));
+        }
+
+        println!("Container state update received:");
+        println!("  Container ID: {}", req.container_id);
+        println!("  New State: {}", req.state);
+        println!("  Node Name: {}", req.node_name);
+        println!("  Timestamp: {}", req.timestamp);
+
+        // For now, we'll create a simplified container list and forward it through the existing channel
+        // In a production implementation, this would directly call the state machine
+        let container_info = common::monitoringserver::ContainerInfo {
+            id: req.container_id.clone(),
+            names: vec![format!("container-{}", req.container_id)],
+            image: "unknown".to_string(),
+            state: [(req.state.clone(), "true".to_string())]
+                .iter()
+                .cloned()
+                .collect(),
+            config: std::collections::HashMap::new(),
+            annotation: std::collections::HashMap::new(),
+            stats: std::collections::HashMap::new(),
+        };
+
+        let container_list = common::monitoringserver::ContainerList {
+            node_name: req.node_name,
+            containers: vec![container_info],
+        };
+
+        match self.tx.send(container_list).await {
+            Ok(_) => Ok(tonic::Response::new(StateResponse {
+                success: true,
+                message: format!(
+                    "Container state update processed successfully for {}",
+                    req.container_id
+                ),
+                error_code: ErrorCode::Success as i32,
+                details: "Hierarchical state updates triggered".to_string(),
+            })),
+            Err(e) => Ok(tonic::Response::new(StateResponse {
+                success: false,
+                message: format!("Failed to process container state update: {}", e),
+                error_code: ErrorCode::InternalError as i32,
+                details: format!("Channel send error: {}", e),
+            })),
+        }
+    }
+
+    /// Handles model state update requests.
+    ///
+    /// This method receives model state updates and triggers package-level
+    /// state recalculation based on the new model state.
+    ///
+    /// # Arguments
+    /// * `request` - gRPC request containing model state update information
+    ///
+    /// # Returns
+    /// * `Result<tonic::Response<StateResponse>, Status>` - Success confirmation or error
+    async fn update_model_state(
+        &self,
+        request: tonic::Request<UpdateModelStateRequest>,
+    ) -> Result<tonic::Response<StateResponse>, Status> {
+        let req = request.into_inner();
+
+        // Validate request
+        if req.model_id.is_empty() {
+            return Ok(tonic::Response::new(StateResponse {
+                success: false,
+                message: "Model ID cannot be empty".to_string(),
+                error_code: ErrorCode::InvalidRequest as i32,
+                details: "Model ID is required for state updates".to_string(),
+            }));
+        }
+
+        if req.state.is_empty() {
+            return Ok(tonic::Response::new(StateResponse {
+                success: false,
+                message: "Model state cannot be empty".to_string(),
+                error_code: ErrorCode::InvalidRequest as i32,
+                details: "Model state value is required".to_string(),
+            }));
+        }
+
+        println!("Model state update received:");
+        println!("  Model ID: {}", req.model_id);
+        println!("  New State: {}", req.state);
+        println!("  Container IDs: {:?}", req.container_ids);
+        println!("  Timestamp: {}", req.timestamp);
+
+        // Create a StateChange message to forward through the existing channel
+        let state_change = StateChange {
+            resource_type: ResourceType::Model as i32,
+            resource_name: req.model_id.clone(),
+            current_state: "unknown".to_string(), // We don't know the current state
+            target_state: req.state,
+            transition_id: format!("model-update-{}-{}", req.model_id, req.timestamp),
+            timestamp_ns: req.timestamp,
+            source: "UpdateModelState".to_string(),
+        };
+
+        match self.tx_state_change.send(state_change).await {
+            Ok(_) => Ok(tonic::Response::new(StateResponse {
+                success: true,
+                message: format!(
+                    "Model state update processed successfully for {}",
+                    req.model_id
+                ),
+                error_code: ErrorCode::Success as i32,
+                details: "Package-level state updates triggered".to_string(),
+            })),
+            Err(e) => Ok(tonic::Response::new(StateResponse {
+                success: false,
+                message: format!("Failed to process model state update: {}", e),
+                error_code: ErrorCode::InternalError as i32,
+                details: format!("Channel send error: {}", e),
+            })),
+        }
+    }
+}
 impl StateManagerReceiver {
     /// Validates a StateChange message according to PICCOLO specifications.
     ///
@@ -251,10 +413,10 @@ impl StateManagerReceiver {
     /// - source must not be empty
     /// - timestamp_ns must be positive
     fn validate_state_change(&self, state_change: &StateChange) -> Result<(), String> {
-        // Validate resource type enum
+        // Validate resource_type enum
         if ResourceType::try_from(state_change.resource_type).is_err() {
             return Err(format!(
-                "Invalid resource_type: {}",
+                "Invalid resource_type: {}. Must be a valid ResourceType enum value.",
                 state_change.resource_type
             ));
         }
@@ -263,15 +425,19 @@ impl StateManagerReceiver {
         if state_change.resource_name.trim().is_empty() {
             return Err("resource_name cannot be empty".to_string());
         }
+
         if state_change.current_state.trim().is_empty() {
             return Err("current_state cannot be empty".to_string());
         }
+
         if state_change.target_state.trim().is_empty() {
             return Err("target_state cannot be empty".to_string());
         }
+
         if state_change.transition_id.trim().is_empty() {
             return Err("transition_id cannot be empty".to_string());
         }
+
         if state_change.source.trim().is_empty() {
             return Err("source cannot be empty".to_string());
         }
@@ -281,16 +447,16 @@ impl StateManagerReceiver {
             return Err("timestamp_ns must be positive".to_string());
         }
 
-        // Additional validation can be added here when more fields are available
-        // in the proto file (metadata, dependencies, constraints, etc.)
-
         Ok(())
     }
 
-    /// Converts ResourceType enum to human-readable string.
+    /// Convert ResourceType enum to human-readable string for logging
+    ///
+    /// This utility method provides consistent string representation of ResourceType
+    /// enum values for debugging and logging purposes.
     ///
     /// # Arguments
-    /// * `resource_type` - ResourceType enum value
+    /// * `resource_type` - ResourceType enum value as i32
     ///
     /// # Returns
     /// * `&'static str` - Human-readable resource type name
@@ -328,23 +494,23 @@ impl StateManagerReceiver {
 // - list_resources_by_state(ListResourcesByStateRequest) -> ListResourcesByStateResponse
 //   * Filter resources by current state with label selectors
 //   * Bulk operations support and pagination
-//   * Health status aggregation and reporting
+//   * Resource health correlation and dependency analysis
 //
-// STATE MANAGEMENT API:
+// ADVANCED STATE MANAGEMENT API:
 // - update_desired_state(UpdateDesiredStateRequest) -> StateChangeResponse
-//   * Update target states with validation and dependency checking
-//   * Force updates with safety override capabilities
-//   * Batch update operations for efficiency
+//   * Set desired state for resources with validation
+//   * Force flag for emergency state changes
+//   * Precondition checking and validation
 //
 // - trigger_state_transition(TriggerStateTransitionRequest) -> StateChangeResponse
-//   * Manual state transitions with precondition validation
-//   * Performance constraint enforcement and timing validation
-//   * Emergency override capabilities for safety-critical scenarios
+//   * Force immediate state transitions with reason tracking
+//   * Performance constraint validation and timing enforcement
+//   * Safety verification for ASIL-critical transitions
 //
 // - force_synchronization(ForceSynchronizationRequest) -> StateChangeResponse
-//   * Reconcile state drift between desired and actual states
-//   * Deep synchronization with dependency cascade updates
-//   * Health check integration and validation
+//   * Synchronize state with external systems
+//   * Deep synchronization for comprehensive state recovery
+//   * Conflict resolution and data consistency verification
 //
 // RECOVERY MANAGEMENT API:
 // - trigger_recovery(TriggerRecoveryRequest) -> RecoveryResponse

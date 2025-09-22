@@ -5,10 +5,10 @@
 
 //! Node registry for cluster membership management
 
+use base64::Engine;
 use common::apiserver::{ClusterTopology, TopologyType};
 use common::etcd;
 use prost::Message;
-use base64::Engine;
 
 /// Node registry for managing cluster topology
 #[derive(Clone)]

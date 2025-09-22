@@ -5,11 +5,11 @@
 
 //! Node lookup utilities for finding nodes in the cluster
 
+use base64::Engine;
 use common::apiserver::NodeInfo;
 use common::etcd;
 use prost::Message;
 use std::error::Error;
-use base64::Engine;
 
 /// Find a node by IP address from simplified node keys
 pub async fn find_node_by_simple_key() -> Option<String> {
@@ -24,7 +24,7 @@ pub async fn find_node_by_simple_key() -> Option<String> {
                 return Some(ip_address.to_string());
             }
             None
-        },
+        }
         Err(e) => {
             println!("Error checking simplified nodes: {}", e);
             None
@@ -41,22 +41,24 @@ pub async fn find_node_from_etcd() -> Option<String> {
             for kv in &kvs {
                 println!("Node entry: {}", kv.key);
             }
-            
+
             if !kvs.is_empty() {
                 match base64::engine::general_purpose::STANDARD.decode(&kvs[0].value) {
                     Ok(buf) => match NodeInfo::decode(&buf[..]) {
                         Ok(node) => {
-                            println!("Decoded node: {} ({}), status: {}", 
-                                node.node_id, node.ip_address, node.status);
+                            println!(
+                                "Decoded node: {} ({}), status: {}",
+                                node.node_id, node.ip_address, node.status
+                            );
                             return Some(node.ip_address);
-                        },
+                        }
                         Err(e) => println!("Failed to decode node data: {}", e),
                     },
                     Err(e) => println!("Failed to decode base64: {}", e),
                 }
             }
             None
-        },
+        }
         Err(e) => {
             println!("Error getting nodes: {}", e);
             None
@@ -73,21 +75,23 @@ pub async fn find_node_from_manager() -> Option<String> {
             return None;
         }
     };
-    
+
     match node_manager.get_nodes().await {
         Ok(nodes) => {
             println!("Node manager found {} nodes", nodes.len());
-            
+
             if !nodes.is_empty() {
                 let node = &nodes[0];
-                println!("Node manager found: {} ({}), status: {}", 
-                    node.node_id, node.ip_address, node.status);
+                println!(
+                    "Node manager found: {} ({}), status: {}",
+                    node.node_id, node.ip_address, node.status
+                );
                 return Some(node.ip_address.clone());
             } else {
                 println!("Node manager found no nodes");
                 None
             }
-        },
+        }
         Err(e) => {
             eprintln!("Node manager error: {}", e);
             None
@@ -104,7 +108,10 @@ pub async fn find_node_by_hostname(hostname: &str) -> Option<common::apiserver::
                 if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&kv.value) {
                     if let Ok(node_info) = common::apiserver::NodeInfo::decode(&decoded[..]) {
                         if node_info.hostname == hostname {
-                            println!("Found node with hostname {}: {}", hostname, node_info.ip_address);
+                            println!(
+                                "Found node with hostname {}: {}",
+                                hostname, node_info.ip_address
+                            );
                             return Some(node_info);
                         }
                     }
@@ -112,7 +119,7 @@ pub async fn find_node_by_hostname(hostname: &str) -> Option<common::apiserver::
             }
             println!("No node found with hostname: {}", hostname);
             None
-        },
+        }
         Err(e) => {
             println!("Error searching for hostname {}: {}", hostname, e);
             None
@@ -126,20 +133,23 @@ pub async fn get_node_ip() -> String {
     if let Some(ip) = find_node_by_simple_key().await {
         return ip;
     }
-    
+
     if let Some(ip) = find_node_from_etcd().await {
         return ip;
     }
-    
+
     if let Some(ip) = find_node_from_manager().await {
         return ip;
     }
-    
+
     // Fallback to settings file if no nodes are found
     let config = common::setting::get_config();
     let node_ip = config.host.ip.clone();
-    println!("All node lookups failed. Falling back to settings IP: {}", node_ip);
-    
+    println!(
+        "All node lookups failed. Falling back to settings IP: {}",
+        node_ip
+    );
+
     node_ip
 }
 
@@ -158,23 +168,25 @@ pub async fn find_guest_nodes() -> Vec<NodeInfo> {
         Ok(kvs) => {
             println!("Found {} node entries for guest search", kvs.len());
             let mut guest_nodes = Vec::new();
-            
+
             for kv in kvs {
                 if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(&kv.value) {
                     if let Ok(node_info) = NodeInfo::decode(&decoded[..]) {
                         // 마스터 노드가 아닌 경우에만 게스트 노드로 간주
                         if node_info.node_role != common::nodeagent::NodeRole::Master as i32 {
-                            println!("Found guest node: {} ({}) with role: {}", 
-                                node_info.node_id, node_info.ip_address, node_info.node_role);
+                            println!(
+                                "Found guest node: {} ({}) with role: {}",
+                                node_info.node_id, node_info.ip_address, node_info.node_role
+                            );
                             guest_nodes.push(node_info);
                         }
                     }
                 }
             }
-            
+
             println!("Found {} guest nodes", guest_nodes.len());
             guest_nodes
-        },
+        }
         Err(e) => {
             println!("Error searching for guest nodes: {}", e);
             Vec::new()

@@ -57,10 +57,10 @@ impl NodeStatusManager {
 
         let nodeagent_nodes = nodes
             .iter()
-            .filter(|node| 
-                node.node_role == common::nodeagent::NodeRole::Nodeagent as i32 || 
-                node.node_role == common::nodeagent::NodeRole::Bluechi as i32
-            )
+            .filter(|node| {
+                node.node_role == common::nodeagent::NodeRole::Nodeagent as i32
+                    || node.node_role == common::nodeagent::NodeRole::Bluechi as i32
+            })
             .count();
 
         let ready_nodes = nodes

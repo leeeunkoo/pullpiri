@@ -1201,6 +1201,311 @@ impl StateMachine {
             _ => 0,
         }
     }
+
+    // ========================================
+    // HIERARCHICAL STATE MANAGEMENT
+    // ========================================
+
+    /// Determine Model state based on Container states according to specification
+    ///
+    /// Rules:
+    /// - Created: Default state when model is created
+    /// - Running: Default state when not all conditions for other states are met
+    /// - Paused: When all containers are in paused state  
+    /// - Exited: When all containers are in exited state
+    /// - Dead: When one or more containers are in dead state, or model info lookup fails
+    pub fn determine_model_state(&self, container_states: &HashMap<String, String>) -> ModelState {
+        if container_states.is_empty() {
+            return ModelState::Unknown;
+        }
+
+        // Check if all containers are paused
+        let all_paused = container_states.values().all(|state| state == "paused");
+        if all_paused {
+            return ModelState::Succeeded; // Using Succeeded to represent Paused
+        }
+
+        // Check if all containers are exited
+        let all_exited = container_states.values().all(|state| state == "exited");
+        if all_exited {
+            return ModelState::Failed; // Using Failed to represent Exited
+        }
+
+        // Check if any container is dead
+        let any_dead = container_states.values().any(|state| state == "dead");
+        if any_dead {
+            return ModelState::Failed; // Dead containers mean model is failed
+        }
+
+        // Default state is Running
+        ModelState::Running
+    }
+
+    /// Determine Package state based on Model states according to specification
+    ///
+    /// Rules:
+    /// - idle: Default state when package is created (using Unspecified)
+    /// - running: Default state when not all conditions for other states are met
+    /// - paused: When all models are in paused state
+    /// - exited: When all models are in exited state
+    /// - degraded: When some (but not all) models are in dead state
+    /// - error: When all models are in dead state
+    pub fn determine_package_state(&self, model_states: &HashMap<String, String>) -> PackageState {
+        if model_states.is_empty() {
+            return PackageState::Unspecified; // idle state
+        }
+
+        let succeeded_count = model_states
+            .values()
+            .filter(|&state| state == "succeeded")
+            .count();
+        let failed_count = model_states
+            .values()
+            .filter(|&state| state == "failed")
+            .count();
+        let total_count = model_states.len();
+
+        // Check if all models are paused (represented as succeeded)
+        if succeeded_count == total_count {
+            return PackageState::Paused;
+        }
+
+        // Check if all models are failed (exited or dead)
+        if failed_count == total_count {
+            return PackageState::Error;
+        }
+
+        // Check if some models are failed (degraded state)
+        if failed_count > 0 {
+            return PackageState::Degraded;
+        }
+
+        // Default state is Running
+        PackageState::Running
+    }
+
+    /// Get all container states for a specific model from ETCD
+    pub async fn get_container_states_for_model(
+        &self,
+        model_id: &str,
+    ) -> common::Result<HashMap<String, String>> {
+        let prefix = format!("/model/{}/containers/", model_id);
+        let kvs = common::etcd::get_all_with_prefix(&prefix).await?;
+
+        let mut container_states = HashMap::new();
+        for kv in kvs {
+            if let Some(container_id) = kv.key.strip_prefix(&prefix) {
+                container_states.insert(container_id.to_string(), kv.value);
+            }
+        }
+
+        Ok(container_states)
+    }
+
+    /// Get all model states for a specific package from ETCD
+    pub async fn get_model_states_for_package(
+        &self,
+        package_id: &str,
+    ) -> common::Result<HashMap<String, String>> {
+        let prefix = format!("/package/{}/models/", package_id);
+        let kvs = common::etcd::get_all_with_prefix(&prefix).await?;
+
+        let mut model_states = HashMap::new();
+        for kv in kvs {
+            if let Some(model_id) = kv.key.strip_prefix(&prefix) {
+                model_states.insert(model_id.to_string(), kv.value);
+            }
+        }
+
+        Ok(model_states)
+    }
+
+    /// Find the model that contains a specific container
+    pub async fn get_model_for_container(&self, container_id: &str) -> common::Result<String> {
+        let mapping_key = format!("/container/{}/model", container_id);
+        match common::etcd::get(&mapping_key).await {
+            Ok(model_id) => Ok(model_id),
+            Err(_) => {
+                // Fallback: search through all models to find this container
+                let models_prefix = "/model/";
+                let kvs = common::etcd::get_all_with_prefix(models_prefix).await?;
+
+                for kv in kvs {
+                    if kv.key.contains(&format!("/containers/{}", container_id)) {
+                        let parts: Vec<&str> = kv.key.split('/').collect();
+                        if parts.len() >= 3 && parts[1] == "model" {
+                            return Ok(parts[2].to_string());
+                        }
+                    }
+                }
+
+                Err("Model not found for container".into())
+            }
+        }
+    }
+
+    /// Find the package that contains a specific model
+    pub async fn get_package_for_model(&self, model_id: &str) -> common::Result<String> {
+        let mapping_key = format!("/model/{}/package", model_id);
+        match common::etcd::get(&mapping_key).await {
+            Ok(package_id) => Ok(package_id),
+            Err(_) => {
+                // Fallback: search through all packages to find this model
+                let packages_prefix = "/package/";
+                let kvs = common::etcd::get_all_with_prefix(packages_prefix).await?;
+
+                for kv in kvs {
+                    if kv.key.contains(&format!("/models/{}", model_id)) {
+                        let parts: Vec<&str> = kv.key.split('/').collect();
+                        if parts.len() >= 3 && parts[1] == "package" {
+                            return Ok(parts[2].to_string());
+                        }
+                    }
+                }
+
+                Ok(String::new()) // Return empty string if no package found (not an error)
+            }
+        }
+    }
+
+    /// Update container state and trigger cascading updates to Model and Package states
+    pub async fn update_container_state(
+        &self,
+        container_id: &str,
+        container_state: &str,
+    ) -> common::Result<()> {
+        println!("=== UPDATING CONTAINER STATE ===");
+        println!("  Container ID: {}", container_id);
+        println!("  New State: {}", container_state);
+
+        // 1. Store container state in ETCD
+        let container_key = format!("/container/{}/state", container_id);
+        common::etcd::put(&container_key, container_state).await?;
+
+        // 2. Find the model that contains this container
+        let model_id = self.get_model_for_container(container_id).await?;
+        if model_id.is_empty() {
+            println!("  Warning: No model found for container {}", container_id);
+            return Ok(());
+        }
+
+        println!("  Found Model: {}", model_id);
+
+        // 3. Store container-to-model mapping
+        let mapping_key = format!("/container/{}/model", container_id);
+        common::etcd::put(&mapping_key, &model_id).await?;
+
+        // 4. Update model's container state
+        let model_container_key = format!("/model/{}/containers/{}", model_id, container_id);
+        common::etcd::put(&model_container_key, container_state).await?;
+
+        // 5. Get all container states for this model
+        let container_states = self.get_container_states_for_model(&model_id).await?;
+
+        // 6. Determine new model state
+        let new_model_state = self.determine_model_state(&container_states);
+        let model_state_str = match new_model_state {
+            ModelState::Running => "running",
+            ModelState::Succeeded => "succeeded", // represents paused
+            ModelState::Failed => "failed",       // represents exited/dead
+            ModelState::Unknown => "unknown",
+            _ => "pending",
+        };
+
+        println!("  Determined Model State: {}", model_state_str);
+
+        // 7. Update model state and trigger package update
+        self.update_model_state(&model_id, model_state_str).await?;
+
+        Ok(())
+    }
+
+    /// Update model state and trigger cascading updates to Package state
+    pub async fn update_model_state(
+        &self,
+        model_id: &str,
+        model_state: &str,
+    ) -> common::Result<()> {
+        println!("=== UPDATING MODEL STATE ===");
+        println!("  Model ID: {}", model_id);
+        println!("  New State: {}", model_state);
+
+        // 1. Store model state in ETCD
+        let model_key = format!("/model/{}/state", model_id);
+        common::etcd::put(&model_key, model_state).await?;
+
+        // 2. Find the package that contains this model
+        let package_id = self.get_package_for_model(model_id).await?;
+        if package_id.is_empty() {
+            println!("  Info: No package found for model {}", model_id);
+            return Ok(());
+        }
+
+        println!("  Found Package: {}", package_id);
+
+        // 3. Store model-to-package mapping
+        let mapping_key = format!("/model/{}/package", model_id);
+        common::etcd::put(&mapping_key, &package_id).await?;
+
+        // 4. Update package's model state
+        let package_model_key = format!("/package/{}/models/{}", package_id, model_id);
+        common::etcd::put(&package_model_key, model_state).await?;
+
+        // 5. Get all model states for this package
+        let model_states = self.get_model_states_for_package(&package_id).await?;
+
+        // 6. Determine new package state
+        let new_package_state = self.determine_package_state(&model_states);
+        let package_state_str = match new_package_state {
+            PackageState::Unspecified => "idle",
+            PackageState::Initializing => "initializing",
+            PackageState::Running => "running",
+            PackageState::Degraded => "degraded",
+            PackageState::Error => "error",
+            PackageState::Paused => "paused",
+            PackageState::Updating => "updating",
+        };
+
+        println!("  Determined Package State: {}", package_state_str);
+
+        // 7. Store package state in ETCD
+        let package_key = format!("/package/{}/state", package_id);
+        common::etcd::put(&package_key, package_state_str).await?;
+
+        // 8. Check if reconciliation is needed for error/degraded states
+        if matches!(
+            new_package_state,
+            PackageState::Error | PackageState::Degraded
+        ) {
+            println!("  Package in error/degraded state - triggering reconciliation");
+            self.request_reconcile(&package_id).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Request reconciliation from ActionController for failed packages
+    pub async fn request_reconcile(&self, package_id: &str) -> common::Result<()> {
+        println!("=== REQUESTING RECONCILIATION ===");
+        println!("  Package ID: {}", package_id);
+
+        // Store reconciliation request in ETCD for ActionController to pick up
+        let reconcile_key = format!("/reconcile/{}/timestamp", package_id);
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+            .to_string();
+
+        common::etcd::put(&reconcile_key, &timestamp).await?;
+
+        // Also store the reason for reconciliation
+        let reason_key = format!("/reconcile/{}/reason", package_id);
+        common::etcd::put(&reason_key, "Package in error or degraded state").await?;
+
+        println!("  Reconciliation request stored in ETCD");
+        Ok(())
+    }
 }
 
 /// Default implementation that creates a new StateMachine
@@ -1210,5 +1515,108 @@ impl StateMachine {
 impl Default for StateMachine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_determine_model_state_all_paused() {
+        let state_machine = StateMachine::new();
+        let mut container_states = HashMap::new();
+        container_states.insert("container1".to_string(), "paused".to_string());
+        container_states.insert("container2".to_string(), "paused".to_string());
+        
+        let result = state_machine.determine_model_state(&container_states);
+        assert_eq!(result, ModelState::Succeeded); // Succeeded represents paused
+    }
+
+    #[test]
+    fn test_determine_model_state_all_exited() {
+        let state_machine = StateMachine::new();
+        let mut container_states = HashMap::new();
+        container_states.insert("container1".to_string(), "exited".to_string());
+        container_states.insert("container2".to_string(), "exited".to_string());
+        
+        let result = state_machine.determine_model_state(&container_states);
+        assert_eq!(result, ModelState::Failed); // Failed represents exited
+    }
+
+    #[test]
+    fn test_determine_model_state_any_dead() {
+        let state_machine = StateMachine::new();
+        let mut container_states = HashMap::new();
+        container_states.insert("container1".to_string(), "running".to_string());
+        container_states.insert("container2".to_string(), "dead".to_string());
+        
+        let result = state_machine.determine_model_state(&container_states);
+        assert_eq!(result, ModelState::Failed); // Dead containers mean model is failed
+    }
+
+    #[test]
+    fn test_determine_model_state_default_running() {
+        let state_machine = StateMachine::new();
+        let mut container_states = HashMap::new();
+        container_states.insert("container1".to_string(), "running".to_string());
+        container_states.insert("container2".to_string(), "created".to_string());
+        
+        let result = state_machine.determine_model_state(&container_states);
+        assert_eq!(result, ModelState::Running);
+    }
+
+    #[test]
+    fn test_determine_package_state_all_succeeded() {
+        let state_machine = StateMachine::new();
+        let mut model_states = HashMap::new();
+        model_states.insert("model1".to_string(), "succeeded".to_string());
+        model_states.insert("model2".to_string(), "succeeded".to_string());
+        
+        let result = state_machine.determine_package_state(&model_states);
+        assert_eq!(result, PackageState::Paused);
+    }
+
+    #[test]
+    fn test_determine_package_state_all_failed() {
+        let state_machine = StateMachine::new();
+        let mut model_states = HashMap::new();
+        model_states.insert("model1".to_string(), "failed".to_string());
+        model_states.insert("model2".to_string(), "failed".to_string());
+        
+        let result = state_machine.determine_package_state(&model_states);
+        assert_eq!(result, PackageState::Error);
+    }
+
+    #[test]
+    fn test_determine_package_state_some_failed() {
+        let state_machine = StateMachine::new();
+        let mut model_states = HashMap::new();
+        model_states.insert("model1".to_string(), "running".to_string());
+        model_states.insert("model2".to_string(), "failed".to_string());
+        
+        let result = state_machine.determine_package_state(&model_states);
+        assert_eq!(result, PackageState::Degraded);
+    }
+
+    #[test]
+    fn test_determine_package_state_default_running() {
+        let state_machine = StateMachine::new();
+        let mut model_states = HashMap::new();
+        model_states.insert("model1".to_string(), "running".to_string());
+        model_states.insert("model2".to_string(), "running".to_string());
+        
+        let result = state_machine.determine_package_state(&model_states);
+        assert_eq!(result, PackageState::Running);
+    }
+
+    #[test]
+    fn test_determine_package_state_empty() {
+        let state_machine = StateMachine::new();
+        let model_states = HashMap::new();
+        
+        let result = state_machine.determine_package_state(&model_states);
+        assert_eq!(result, PackageState::Unspecified); // idle state
     }
 }
