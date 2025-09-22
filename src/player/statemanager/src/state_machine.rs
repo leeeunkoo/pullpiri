@@ -1106,6 +1106,286 @@ impl StateMachine {
     }
 
     // ========================================
+    // CASCADING STATE MANAGEMENT LOGIC
+    // ========================================
+
+    /// Process container state changes and cascade to model states
+    ///
+    /// This is the core function that implements model state management logic
+    /// as specified in StateManager_Model.md. It aggregates container states
+    /// to determine the appropriate model state according to the LLD rules.
+    ///
+    /// # Arguments
+    /// * `model_name` - Name of the model to evaluate
+    /// * `container_states` - List of (container_name, state) tuples for this model
+    ///
+    /// # Returns
+    /// * `Option<i32>` - New model state if change is needed, None otherwise
+    ///
+    /// # State Transition Rules (from LLD):
+    /// - **Created**: Model's initial state (default for new models)
+    /// - **Paused**: All containers are in paused state
+    /// - **Exited**: All containers are in exited state  
+    /// - **Dead**: One or more containers are in dead state OR model info retrieval failed
+    /// - **Running**: Default state when other conditions are not met
+    pub async fn process_container_state_changes_for_model(
+        &mut self,
+        model_name: &str,
+        container_states: &[(String, String)],
+    ) -> Option<i32> {
+        if container_states.is_empty() {
+            // No containers means model info retrieval failed -> Dead state
+            let new_state = ModelState::Failed as i32; // Using Failed instead of Dead as per proto
+            let current_state = self.get_model_current_state(model_name);
+            
+            if current_state != new_state {
+                // Save model state to ETCD
+                self.save_model_state_to_etcd(model_name, new_state).await;
+                
+                // Trigger cascading check for packages containing this model
+                self.check_and_update_package_states_containing_model(model_name).await;
+                
+                return Some(new_state);
+            }
+            return None;
+        }
+
+        // Count containers by state
+        let mut paused_count = 0;
+        let mut exited_count = 0;
+        let mut dead_count = 0;
+        let total_count = container_states.len();
+
+        for (_, state) in container_states {
+            match state.to_lowercase().as_str() {
+                "paused" => paused_count += 1,
+                "exited" | "stopped" => exited_count += 1, 
+                "dead" | "failed" => dead_count += 1,
+                _ => {}, // running, created, etc. don't count towards special states
+            }
+        }
+
+        // Determine new model state based on LLD rules
+        let new_state = if dead_count > 0 {
+            // One or more containers are dead -> model is Dead
+            ModelState::Failed as i32
+        } else if paused_count == total_count {
+            // All containers are paused -> model is Paused  
+            ModelState::Unknown as i32 // Using Unknown as closest to Paused in proto
+        } else if exited_count == total_count {
+            // All containers are exited -> model is Exited
+            ModelState::Succeeded as i32 // Using Succeeded as closest to Exited in proto
+        } else {
+            // Default state when other conditions not met -> Running
+            ModelState::Running as i32
+        };
+
+        let current_state = self.get_model_current_state(model_name);
+        
+        if current_state != new_state {
+            // Save model state to ETCD
+            self.save_model_state_to_etcd(model_name, new_state).await;
+            
+            // Trigger cascading check for packages containing this model
+            self.check_and_update_package_states_containing_model(model_name).await;
+            
+            Some(new_state)
+        } else {
+            None
+        }
+    }
+
+    /// Process model state changes and cascade to package states
+    ///
+    /// This function implements package state management logic as specified 
+    /// in StateManager_Package.md. It aggregates model states to determine
+    /// the appropriate package state according to the LLD rules.
+    ///
+    /// # Arguments
+    /// * `package_name` - Name of the package to evaluate
+    /// * `model_states` - List of (model_name, state) tuples for this package
+    ///
+    /// # Returns
+    /// * `Option<i32>` - New package state if change is needed, None otherwise
+    ///
+    /// # State Transition Rules (from LLD):
+    /// - **idle**: Initial package state (when created)
+    /// - **paused**: All models are in paused state
+    /// - **exited**: All models are in exited state
+    /// - **degraded**: Some (1+) models are dead, but not all models are dead
+    /// - **error**: All models are in dead state  
+    /// - **running**: Default state when other conditions are not met
+    pub async fn process_model_state_changes_for_package(
+        &mut self,
+        package_name: &str, 
+        model_states: &[(String, i32)],
+    ) -> Option<i32> {
+        if model_states.is_empty() {
+            // No models in package -> keep current state or idle
+            return None;
+        }
+
+        // Count models by state (mapping proto states to LLD states)
+        let mut paused_count = 0;   // MODEL_STATE_UNKNOWN (closest to paused)
+        let mut exited_count = 0;   // MODEL_STATE_SUCCEEDED (closest to exited) 
+        let mut dead_count = 0;     // MODEL_STATE_FAILED (dead state)
+        let total_count = model_states.len();
+
+        for (_, state) in model_states {
+            match *state {
+                s if s == ModelState::Unknown as i32 => paused_count += 1,
+                s if s == ModelState::Succeeded as i32 => exited_count += 1,
+                s if s == ModelState::Failed as i32 => dead_count += 1,
+                _ => {}, // running, pending, etc. don't count towards special states
+            }
+        }
+
+        // Determine new package state based on LLD rules
+        let new_state = if dead_count == total_count {
+            // All models are dead -> package is error
+            PackageState::Error as i32
+        } else if dead_count > 0 {
+            // Some models are dead (but not all) -> package is degraded
+            PackageState::Degraded as i32
+        } else if paused_count == total_count {
+            // All models are paused -> package is paused
+            PackageState::Paused as i32
+        } else if exited_count == total_count {
+            // All models are exited -> package is exited (not in proto, use Error)
+            PackageState::Error as i32 // Using Error as closest available state
+        } else {
+            // Default state when other conditions not met -> running
+            PackageState::Running as i32
+        };
+
+        let current_state = self.get_package_current_state(package_name);
+        
+        if current_state != new_state {
+            // Save package state to ETCD
+            self.save_package_state_to_etcd(package_name, new_state).await;
+            
+            // Check if package became dead/error -> trigger ActionController reconcile
+            if new_state == PackageState::Error as i32 {
+                self.trigger_action_controller_reconcile(package_name).await;
+            }
+            
+            Some(new_state)
+        } else {
+            None
+        }
+    }
+
+    // ========================================
+    // HELPER FUNCTIONS FOR STATE MANAGEMENT
+    // ========================================
+
+    /// Get current state for a model
+    fn get_model_current_state(&self, model_name: &str) -> i32 {
+        let resource_key = self.generate_resource_key(ResourceType::Model, model_name);
+        self.resource_states
+            .get(&resource_key)
+            .map(|state| state.current_state)
+            .unwrap_or(ModelState::Unspecified as i32)
+    }
+
+    /// Get current state for a package  
+    fn get_package_current_state(&self, package_name: &str) -> i32 {
+        let resource_key = self.generate_resource_key(ResourceType::Package, package_name);
+        self.resource_states
+            .get(&resource_key)
+            .map(|state| state.current_state)
+            .unwrap_or(PackageState::Unspecified as i32)
+    }
+
+    /// Save model state to ETCD following LLD format
+    async fn save_model_state_to_etcd(&self, model_name: &str, model_state: i32) {
+        let key = format!("/model/{}/state", model_name);
+        let value = match ModelState::try_from(model_state) {
+            Ok(state) => state.as_str_name(),
+            Err(_) => "UNSPECIFIED",
+        };
+        
+        if let Err(e) = common::etcd::put(&key, value).await {
+            eprintln!("Failed to save model state: {:?}", e);
+        }
+    }
+
+    /// Save package state to ETCD following LLD format
+    async fn save_package_state_to_etcd(&self, package_name: &str, package_state: i32) {
+        let key = format!("/package/{}/state", package_name);
+        let value = match PackageState::try_from(package_state) {
+            Ok(state) => state.as_str_name(),
+            Err(_) => "UNSPECIFIED", 
+        };
+        
+        if let Err(e) = common::etcd::put(&key, value).await {
+            eprintln!("Failed to save package state: {:?}", e);
+        }
+    }
+
+    /// Check and update package states for packages containing the given model
+    async fn check_and_update_package_states_containing_model(&mut self, _model_name: &str) {
+        // Query ETCD to find packages containing this model
+        // For now, we'll use a simple approach - check all packages and see if they contain this model
+        let package_prefix = "/package/";
+        match common::etcd::get_all_with_prefix(package_prefix).await {
+            Ok(kvs) => {
+                for kv in kvs {
+                    if kv.key.ends_with("/state") {
+                        // Extract package name from key like "/package/my_package/state"
+                        let parts: Vec<&str> = kv.key.split('/').collect();
+                        if parts.len() >= 3 {
+                            let package_name = parts[2];
+                            
+                            // Get all models for this package (simplified - in real implementation,
+                            // this would query package manifest or model relationships)
+                            let model_states = self.get_models_for_package(package_name).await;
+                            
+                            // Update package state based on its models
+                            self.process_model_state_changes_for_package(package_name, &model_states).await;
+                        }
+                    }
+                }
+            }
+            Err(e) => eprintln!("Failed to query packages from ETCD: {:?}", e),
+        }
+    }
+
+    /// Get all models belonging to a package (simplified implementation)
+    async fn get_models_for_package(&self, package_name: &str) -> Vec<(String, i32)> {
+        // In a real implementation, this would query the package manifest
+        // or use a relationship mapping. For now, return models from internal state
+        // that have the package name as a prefix or metadata association.
+        
+        let mut models = Vec::new();
+        for (_resource_key, resource_state) in &self.resource_states {
+            if resource_state.resource_type == ResourceType::Model {
+                // Simple heuristic: if model name starts with package name, consider it part of package
+                if resource_state.resource_name.starts_with(package_name) {
+                    models.push((resource_state.resource_name.clone(), resource_state.current_state));
+                }
+            }
+        }
+        models
+    }
+
+    /// Trigger ActionController reconcile for dead/error packages
+    async fn trigger_action_controller_reconcile(&self, package_name: &str) {
+        println!("Triggering ActionController reconcile for package: {}", package_name);
+        
+        // TODO: Implement actual gRPC call to ActionController
+        // This would use the ActionController client to send a reconcile request
+        // For now, just log the action as per the HLD requirement
+        
+        // In real implementation:
+        // let request = ReconcileRequest {
+        //     package_name: package_name.to_string(),
+        //     reason: "Package entered dead/error state".to_string(),
+        // };
+        // action_controller_client.reconcile(request).await;
+    }
+
+    // ========================================
     // PUBLIC QUERY METHODS
     // ========================================
 

@@ -418,74 +418,91 @@ impl StateManagerManager {
 
     /// Processes a ContainerList message for container health monitoring.
     ///
-    /// This method handles container status updates from nodeagent and
-    /// triggers appropriate state transitions based on container health.
+    /// This method implements the core cascading state management logic as specified
+    /// in the LLD documents. It aggregates container states to determine model states,
+    /// and triggers package state updates accordingly.
     ///
     /// # Arguments
     /// * `container_list` - ContainerList message with node and container status
     ///
-    /// # Processing Steps
-    /// 1. Analyze container health and status changes
-    /// 2. Identify resources affected by container changes
-    /// 3. Trigger state transitions for failed or recovered containers
-    /// 4. Update resource health status and monitoring data
+    /// # Processing Steps (following LLD specifications)
+    /// 1. Group containers by model (using model name extraction)
+    /// 2. For each model, aggregate container states according to LLD rules
+    /// 3. Update model state based on container state aggregation
+    /// 4. Trigger package state evaluation for packages containing changed models
+    /// 5. Handle ActionController reconcile if packages become dead/error
     async fn process_container_list(&self, container_list: ContainerList) {
         println!("=== PROCESSING CONTAINER LIST ===");
         println!("  Node Name: {}", container_list.node_name);
         println!("  Container Count: {}", container_list.containers.len());
 
-        // Process each container for health status analysis
-        for (i, container) in container_list.containers.iter().enumerate() {
-            // container.names is a Vec<String>, so join them for display
-            let container_names = container.names.join(", ");
-            println!("  Container {}: {}", i + 1, container_names);
-            println!("    Image: {}", container.image);
-            println!("    State: {:?}", container.state);
-            println!("    ID: {}", container.id);
+        // ========================================
+        // STEP 1: GROUP CONTAINERS BY MODEL
+        // ========================================
+        // Extract container states and group them by model name
+        // This implements the first step of the cascading state management
+        let mut model_containers: std::collections::HashMap<String, Vec<(String, String)>> = 
+            std::collections::HashMap::new();
 
-            // container.config is a HashMap, not an Option
-            if !container.config.is_empty() {
-                println!("    Config: {:?}", container.config);
-            }
+        for container in &container_list.containers {
+            // Extract model name from container annotation or name
+            // Convention: containers are named like "model_name_container_suffix"
+            // or use annotation "model" to specify the model name
+            let model_name = if let Some(model) = container.annotation.get("model") {
+                model.clone()
+            } else if !container.names.is_empty() {
+                // Extract model name from container name (assume first part before underscore)
+                let container_name = &container.names[0];
+                if let Some(pos) = container_name.find('_') {
+                    container_name[..pos].to_string()
+                } else {
+                    container_name.clone()
+                }
+            } else {
+                continue; // Skip containers without identifiable model
+            };
 
-            // Process container annotations if available
-            if !container.annotation.is_empty() {
-                println!("    Annotations: {:?}", container.annotation);
-            }
+            // Convert container state to string representation
+            // container.state is a HashMap<String, String>, extract actual state
+            let state_str = container.state.get("Status")
+                .or_else(|| container.state.get("State"))
+                .or_else(|| container.state.get("status"))
+                .map(|s| s.to_lowercase())
+                .unwrap_or_else(|| "unknown".to_string());
 
-            // TODO: Implement comprehensive container processing:
-            //
-            // 1. HEALTH STATUS ANALYSIS
-            //    - Analyze container state changes (running -> failed, etc.)
-            //    - Check exit codes for failure conditions
-            //    - Monitor resource usage and performance metrics
-            //    - Detect container restart loops and crash patterns
-            //
-            // 2. RESOURCE MAPPING
-            //    - Map containers to managed resources (scenarios, packages, models)
-            //    - Identify which resources are affected by container changes
-            //    - Determine impact on dependent resources
-            //
-            // 3. STATE TRANSITION TRIGGERS
-            //    - Trigger state transitions for failed containers
-            //    - Handle container recovery and restart scenarios
-            //    - Update resource states based on container health
-            //    - Escalate to recovery management for critical failures
-            //
-            // 4. HEALTH STATUS UPDATES
-            //    - Update resource health status based on container state
-            //    - Generate health check events and notifications
-            //    - Update monitoring and observability data
-            //    - Maintain health history for trend analysis
-            //
-            // 5. ASIL COMPLIANCE MONITORING
-            //    - Monitor ASIL-critical containers for safety violations
-            //    - Generate alerts for safety-critical container failures
-            //    - Implement timing constraints for container recovery
-            //    - Ensure safety systems remain operational
+            // Get container name for tracking
+            let container_name = container.names.first().cloned().unwrap_or_default();
+            
+            println!("  Container: {} -> Model: {} (State: {})", 
+                    container_name, model_name, state_str);
+
+            // Add to model grouping
+            model_containers
+                .entry(model_name)
+                .or_insert_with(Vec::new)
+                .push((container_name, state_str));
         }
 
-        println!("  Status: Container list processing completed (implementation pending)");
+        // ========================================
+        // STEP 2: PROCESS MODEL STATE CHANGES
+        // ========================================
+        // For each model, evaluate if its state should change based on container states
+        for (model_name, container_states) in &model_containers {
+            println!("  Processing model: {} with {} containers", model_name, container_states.len());
+            
+            // Use state machine to process container state changes for this model
+            let mut state_machine = self.state_machine.lock().await;
+            if let Some(new_model_state) = state_machine
+                .process_container_state_changes_for_model(model_name, container_states)
+                .await
+            {
+                println!("    ✓ Model {} state changed to: {}", model_name, new_model_state);
+            } else {
+                println!("    ○ Model {} state unchanged", model_name);
+            }
+        }
+
+        println!("  Status: Container list processing completed with cascading state management");
         println!("=====================================");
     }
 
