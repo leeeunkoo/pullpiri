@@ -479,7 +479,7 @@ impl StateManagerManager {
             // Add to model grouping
             model_containers
                 .entry(model_name)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push((container_name, state_str));
         }
 

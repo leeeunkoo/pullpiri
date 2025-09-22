@@ -1358,7 +1358,7 @@ impl StateMachine {
         // that have the package name as a prefix or metadata association.
         
         let mut models = Vec::new();
-        for (_resource_key, resource_state) in &self.resource_states {
+        for resource_state in self.resource_states.values() {
             if resource_state.resource_type == ResourceType::Model {
                 // Simple heuristic: if model name starts with package name, consider it part of package
                 if resource_state.resource_name.starts_with(package_name) {
