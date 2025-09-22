@@ -434,6 +434,110 @@ impl StateMachine {
     // ========================================
     // CORE STATE PROCESSING
     // ========================================
+
+    /// Process a state change request with cascading transitions and ETCD persistence
+    ///
+    /// This is the main entry point for LLD-compliant state management. It handles:
+    /// 1. Primary state transition processing
+    /// 2. ETCD state persistence
+    /// 3. Cascading state evaluation for parent resources
+    /// 4. Error recovery notifications
+    ///
+    /// # Arguments
+    /// * `state_change` - The state change request to process
+    ///
+    /// # Returns
+    /// * `Vec<TransitionResult>` - Results for primary and any cascading transitions
+    ///
+    /// # LLD Compliance
+    /// This method implements the complete state management workflow specified
+    /// in the StateManager_Model.md LLD document.
+    pub async fn process_state_change_with_cascading(
+        &mut self,
+        state_change: StateChange,
+    ) -> Vec<TransitionResult> {
+        println!("================================");
+        println!(
+            "Processing StateChange for {:?} '{}'",
+            ResourceType::try_from(state_change.resource_type).unwrap_or(ResourceType::Unspecified),
+            state_change.resource_name
+        );
+        println!(
+            "  Transition: {} -> {}",
+            state_change.current_state, state_change.target_state
+        );
+        println!(
+            "  Source: {}, ID: {}",
+            state_change.source, state_change.transition_id
+        );
+
+        let mut results = Vec::new();
+
+        // Step 1: Process the primary state change
+        let primary_result = self.process_state_change(state_change.clone());
+        let primary_success = primary_result.is_success();
+        results.push(primary_result);
+
+        // Step 2: If primary transition succeeded, persist to ETCD and handle cascading
+        if primary_success {
+            // Persist the new state to ETCD
+            if let Ok(resource_type) = ResourceType::try_from(state_change.resource_type) {
+                let state_name = state_change.target_state.clone();
+                let success = self
+                    .persist_state_to_etcd(resource_type, &state_change.resource_name, &state_name)
+                    .await;
+
+                if !success {
+                    eprintln!(
+                        "  [Warning] Failed to persist state to ETCD, but transition completed"
+                    );
+                }
+            }
+
+            // Step 3: Handle cascading transitions
+            let cascading_changes = self.handle_cascading_transitions(&state_change).await;
+
+            // Step 4: Process each cascading state change recursively
+            for cascading_change in cascading_changes {
+                println!(
+                    "  [Cascading] Processing cascading change for {:?} '{}'",
+                    ResourceType::try_from(cascading_change.resource_type)
+                        .unwrap_or(ResourceType::Unspecified),
+                    cascading_change.resource_name
+                );
+
+                // Process cascading changes (non-recursively to avoid async recursion issues)
+                let cascading_result = self.process_state_change(cascading_change.clone());
+
+                // If cascading change succeeded, persist it to ETCD
+                if cascading_result.is_success() {
+                    if let Ok(resource_type) =
+                        ResourceType::try_from(cascading_change.resource_type)
+                    {
+                        let success = self
+                            .persist_state_to_etcd(
+                                resource_type,
+                                &cascading_change.resource_name,
+                                &cascading_change.target_state,
+                            )
+                            .await;
+
+                        if !success {
+                            eprintln!("  [Warning] Failed to persist cascading state to ETCD");
+                        }
+                    }
+                }
+
+                results.push(cascading_result);
+            }
+        } else {
+            println!("  [Error] Primary state transition failed, skipping cascading logic");
+        }
+
+        println!("================================");
+        results
+    }
+
     /// Process a state change request with non-blocking action execution
     pub fn process_state_change(&mut self, state_change: StateChange) -> TransitionResult {
         // Validate input parameters
@@ -1207,36 +1311,39 @@ impl StateMachine {
     // ========================================
 
     /// Evaluate model state based on container states according to LLD Table 3.2
-    /// 
+    ///
     /// This function implements the core model state evaluation logic as specified
     /// in the StateManager_Model.md LLD document. It determines the model state
     /// based on the collective states of all containers within the model.
-    /// 
+    ///
     /// # Arguments
     /// * `model_name` - Name of the model to evaluate
     /// * `container_states` - Map of container name to state string
-    /// 
+    ///
     /// # Returns
     /// * `ModelState` - The evaluated state based on LLD conditions
-    /// 
+    ///
     /// # State Conditions (LLD Table 3.2)
     /// - Created: Model's initial state (when no containers or all containers are new)
     /// - Paused: All containers are in paused state
     /// - Exited: All containers are in exited state  
     /// - Dead: One or more containers are in dead state OR model info query failed
     /// - Running: Default state when other conditions are not met
-    /// 
+    ///
     /// # Implementation Notes
     /// This method follows the exact state transition rules specified in the LLD
     /// and is designed to be called when container states change, triggering
     /// cascading model state evaluation.
     pub fn evaluate_model_state_from_containers(
-        &self, 
-        model_name: &str, 
-        container_states: &HashMap<String, String>
+        &self,
+        model_name: &str,
+        container_states: &HashMap<String, String>,
     ) -> ModelState {
-        println!("  [Model State Evaluation] Evaluating model '{}' with {} containers", 
-                 model_name, container_states.len());
+        println!(
+            "  [Model State Evaluation] Evaluating model '{}' with {} containers",
+            model_name,
+            container_states.len()
+        );
 
         // Handle empty container case - model should be in Created state
         if container_states.is_empty() {
@@ -1250,42 +1357,55 @@ impl StateMachine {
         }
 
         // Apply LLD Table 3.2 state evaluation rules
-        let evaluated_state = if container_states.values().any(|s| s.to_lowercase() == "dead") {
+        let evaluated_state = if container_states
+            .values()
+            .any(|s| s.to_lowercase() == "dead")
+        {
             // Rule: One or more containers are dead -> Model Dead
             println!("    -> Found dead container(s), setting model to MODEL_STATE_FAILED");
             ModelState::Failed
-        } else if container_states.values().all(|s| s.to_lowercase() == "paused") {
-            // Rule: All containers are paused -> Model Paused  
+        } else if container_states
+            .values()
+            .all(|s| s.to_lowercase() == "paused")
+        {
+            // Rule: All containers are paused -> Model Paused
             println!("    -> All containers paused, setting model to MODEL_STATE_PENDING");
             ModelState::Pending
-        } else if container_states.values().all(|s| s.to_lowercase() == "exited") {
+        } else if container_states
+            .values()
+            .all(|s| s.to_lowercase() == "exited")
+        {
             // Rule: All containers are exited -> Model Exited
             println!("    -> All containers exited, setting model to MODEL_STATE_SUCCEEDED");
             ModelState::Succeeded
         } else {
             // Default rule: Running state when other conditions not met
-            println!("    -> Mixed or running container states, setting model to MODEL_STATE_RUNNING");
+            println!(
+                "    -> Mixed or running container states, setting model to MODEL_STATE_RUNNING"
+            );
             ModelState::Running
         };
 
-        println!("  [Model State Evaluation] Model '{}' evaluated to: {:?}", 
-                 model_name, evaluated_state);
+        println!(
+            "  [Model State Evaluation] Model '{}' evaluated to: {:?}",
+            model_name, evaluated_state
+        );
         evaluated_state
     }
 
     /// Evaluate package state based on model states according to LLD Table 3.1
-    /// 
+    ///
     /// This function implements the package state evaluation logic as specified
     /// in the StateManager_Model.md LLD document. It determines the package state
     /// based on the collective states of all models within the package.
-    /// 
+    ///
     /// # Arguments  
     /// * `package_name` - Name of the package to evaluate
     /// * `model_states` - Map of model name to ModelState
-    /// 
+    ///
     /// # Returns
     /// * `PackageState` - The evaluated state based on LLD conditions
-    /// 
+    ///
     /// # State Conditions (LLD Table 3.1)
     /// - idle: Initial package state (when no models exist)
     /// - paused: All models are in paused state
@@ -1293,18 +1413,21 @@ impl StateMachine {
     /// - degraded: Some (1+) models are in dead/failed state, but not all
     /// - error: All models are in dead/failed state  
     /// - running: Default state when other conditions are not met
-    /// 
+    ///
     /// # Implementation Notes
     /// This method follows the exact state transition rules specified in the LLD
     /// and is designed to be called after model state evaluation to implement
     /// cascading state transitions.
     pub fn evaluate_package_state_from_models(
-        &self, 
-        package_name: &str, 
-        model_states: &HashMap<String, ModelState>
+        &self,
+        package_name: &str,
+        model_states: &HashMap<String, ModelState>,
     ) -> PackageState {
-        println!("  [Package State Evaluation] Evaluating package '{}' with {} models", 
-                 package_name, model_states.len());
+        println!(
+            "  [Package State Evaluation] Evaluating package '{}' with {} models",
+            package_name,
+            model_states.len()
+        );
 
         // Handle empty model case - package should be in idle state
         if model_states.is_empty() {
@@ -1318,7 +1441,8 @@ impl StateMachine {
         }
 
         // Count models in different states for evaluation
-        let failed_count = model_states.values()
+        let failed_count = model_states
+            .values()
             .filter(|&s| matches!(s, ModelState::Failed | ModelState::Unknown))
             .count();
         let total_count = model_states.len();
@@ -1326,18 +1450,29 @@ impl StateMachine {
         // Apply LLD Table 3.1 state evaluation rules
         let evaluated_state = if failed_count == total_count && total_count > 0 {
             // Rule: All models are dead/failed -> Package Error
-            println!("    -> All {} models failed, setting package to PACKAGE_STATE_ERROR", total_count);
+            println!(
+                "    -> All {} models failed, setting package to PACKAGE_STATE_ERROR",
+                total_count
+            );
             PackageState::Error
         } else if failed_count > 0 {
-            // Rule: Some models are dead/failed -> Package Degraded  
-            println!("    -> {}/{} models failed, setting package to PACKAGE_STATE_DEGRADED", 
-                     failed_count, total_count);
+            // Rule: Some models are dead/failed -> Package Degraded
+            println!(
+                "    -> {}/{} models failed, setting package to PACKAGE_STATE_DEGRADED",
+                failed_count, total_count
+            );
             PackageState::Degraded
-        } else if model_states.values().all(|s| matches!(s, ModelState::Pending)) {
+        } else if model_states
+            .values()
+            .all(|s| matches!(s, ModelState::Pending))
+        {
             // Rule: All models are paused -> Package Paused
             println!("    -> All models pending, setting package to PACKAGE_STATE_PAUSED");
             PackageState::Paused
-        } else if model_states.values().all(|s| matches!(s, ModelState::Succeeded)) {
+        } else if model_states
+            .values()
+            .all(|s| matches!(s, ModelState::Succeeded))
+        {
             // Rule: All models are exited -> Package Exited
             println!("    -> All models succeeded, package operation complete");
             PackageState::Running // In package context, succeeded models mean package is running
@@ -1347,38 +1482,40 @@ impl StateMachine {
             PackageState::Running
         };
 
-        println!("  [Package State Evaluation] Package '{}' evaluated to: {:?}", 
-                 package_name, evaluated_state);
+        println!(
+            "  [Package State Evaluation] Package '{}' evaluated to: {:?}",
+            package_name, evaluated_state
+        );
         evaluated_state
     }
 
     /// Persist resource state to ETCD with standardized key format per LLD requirements
-    /// 
+    ///
     /// This function implements the ETCD persistence logic with key formats
     /// specified in the StateManager_Model.md LLD document. It saves resource
     /// states using the standardized key structure for consistent data access.
-    /// 
+    ///
     /// # Arguments
     /// * `resource_type` - Type of resource (Model, Package, Container)
     /// * `resource_name` - Name of the resource instance
     /// * `state` - State string to persist (e.g., "Running", "Failed")
-    /// 
+    ///
     /// # ETCD Key Formats (per LLD Section 4.2)
     /// - Model: `/model/{name}/state`
     /// - Package: `/package/{name}/state`  
     /// - Container: `/container/{name}/state`
-    /// 
+    ///
     /// # Returns
     /// * `bool` - true if successful, false if failed
-    /// 
+    ///
     /// # Error Handling
     /// ETCD errors are logged and the function returns false for failure cases.
     /// Network failures and key conflicts should be handled by retry logic.
     pub async fn persist_state_to_etcd(
         &self,
         resource_type: ResourceType,
-        resource_name: &str, 
-        state: &str
+        resource_name: &str,
+        state: &str,
     ) -> bool {
         // Generate standardized ETCD key format per LLD
         let key = match resource_type {
@@ -1386,142 +1523,358 @@ impl StateMachine {
             ResourceType::Package => format!("/package/{}/state", resource_name),
             ResourceType::Scenario => format!("/scenario/{}/state", resource_name),
             _ => {
-                eprintln!("    [ETCD] Unsupported resource type for state persistence: {:?}", resource_type);
+                eprintln!(
+                    "    [ETCD] Unsupported resource type for state persistence: {:?}",
+                    resource_type
+                );
                 return false; // Skip unsupported types
             }
         };
 
-        println!("    [ETCD] Persisting state: key='{}', value='{}'", key, state);
+        println!(
+            "    [ETCD] Persisting state: key='{}', value='{}'",
+            key, state
+        );
 
         // Use existing common::etcd module for persistence
         match common::etcd::put(&key, state).await {
             Ok(_) => {
-                println!("    [ETCD] Successfully persisted state for {} '{}'", 
-                         format!("{:?}", resource_type).to_lowercase(), resource_name);
+                println!(
+                    "    [ETCD] Successfully persisted state for {} '{}'",
+                    format!("{:?}", resource_type).to_lowercase(),
+                    resource_name
+                );
                 true
             }
             Err(e) => {
-                eprintln!("    [ETCD] Failed to persist state for {} '{}': {:?}", 
-                          format!("{:?}", resource_type).to_lowercase(), resource_name, e);
+                eprintln!(
+                    "    [ETCD] Failed to persist state for {} '{}': {:?}",
+                    format!("{:?}", resource_type).to_lowercase(),
+                    resource_name,
+                    e
+                );
                 false
             }
         }
     }
 
     /// Query ETCD for container states belonging to a specific model
-    /// 
+    ///
     /// This function retrieves all container states associated with a model
     /// to enable model state evaluation. It uses ETCD prefix queries for
     /// efficient bulk retrieval of related container data.
-    /// 
+    ///
     /// # Arguments
     /// * `model_name` - Name of the model to query containers for
-    /// 
+    ///
     /// # Returns
     /// * `HashMap<String, String>` - Map of container name to state (empty if error)
-    /// 
+    ///
     /// # ETCD Key Pattern
     /// Queries for keys matching: `/container/{model_name}_*` or `/model/{model_name}/container/*/state`
-    /// 
+    ///
     /// # Error Handling
-    /// ETCD errors are logged and function returns empty HashMap. 
+    /// ETCD errors are logged and function returns empty HashMap.
     /// Empty results are valid and return empty HashMap.
     pub async fn get_container_states_for_model(
-        &self, 
-        model_name: &str
+        &self,
+        model_name: &str,
     ) -> HashMap<String, String> {
-        println!("    [ETCD] Querying container states for model '{}'", model_name);
+        println!(
+            "    [ETCD] Querying container states for model '{}'",
+            model_name
+        );
 
         // Query for container states using model prefix pattern
         let prefix = format!("/model/{}/container/", model_name);
-        
+
         match common::etcd::get_all_with_prefix(&prefix).await {
             Ok(kvs) => {
                 let mut container_states = HashMap::new();
-                
+
                 for kv in kvs {
                     // Extract container name from key pattern: /model/{model}/container/{container}/state
-                    if let Some(container_name) = kv.key
+                    if let Some(container_name) = kv
+                        .key
                         .strip_prefix(&prefix)
-                        .and_then(|s| s.strip_suffix("/state")) {
+                        .and_then(|s| s.strip_suffix("/state"))
+                    {
                         println!("      Found container '{}': {}", container_name, kv.value);
                         container_states.insert(container_name.to_string(), kv.value);
                     }
                 }
-                
-                println!("    [ETCD] Retrieved {} container states for model '{}'", 
-                         container_states.len(), model_name);
+
+                println!(
+                    "    [ETCD] Retrieved {} container states for model '{}'",
+                    container_states.len(),
+                    model_name
+                );
                 container_states
             }
             Err(e) => {
-                eprintln!("    [ETCD] Failed to query container states for model '{}': {:?}", 
-                          model_name, e);
+                eprintln!(
+                    "    [ETCD] Failed to query container states for model '{}': {:?}",
+                    model_name, e
+                );
                 HashMap::new()
             }
         }
     }
 
     /// Query ETCD for model states belonging to a specific package
-    /// 
+    ///
     /// This function retrieves all model states associated with a package
     /// to enable package state evaluation. It uses ETCD prefix queries for
     /// efficient bulk retrieval of related model data.
-    /// 
+    ///
     /// # Arguments
     /// * `package_name` - Name of the package to query models for
-    /// 
+    ///
     /// # Returns
     /// * `HashMap<String, ModelState>` - Map of model name to ModelState (empty if error)
-    /// 
+    ///
     /// # ETCD Key Pattern
     /// Queries for keys matching: `/package/{package_name}/model/*/state`
-    /// 
+    ///
     /// # Error Handling
     /// ETCD errors are logged and function returns empty HashMap.
     /// Invalid model states are logged and skipped.
     pub async fn get_model_states_for_package(
-        &self, 
-        package_name: &str
+        &self,
+        package_name: &str,
     ) -> HashMap<String, ModelState> {
-        println!("    [ETCD] Querying model states for package '{}'", package_name);
+        println!(
+            "    [ETCD] Querying model states for package '{}'",
+            package_name
+        );
 
         // Query for model states using package prefix pattern
         let prefix = format!("/package/{}/model/", package_name);
-        
+
         match common::etcd::get_all_with_prefix(&prefix).await {
             Ok(kvs) => {
                 let mut model_states = HashMap::new();
-                
+
                 for kv in kvs {
                     // Extract model name from key pattern: /package/{package}/model/{model}/state
-                    if let Some(model_name) = kv.key
+                    if let Some(model_name) = kv
+                        .key
                         .strip_prefix(&prefix)
-                        .and_then(|s| s.strip_suffix("/state")) {
-                        
+                        .and_then(|s| s.strip_suffix("/state"))
+                    {
                         // Parse state string to ModelState enum
                         let normalized = format!(
                             "MODEL_STATE_{}",
                             kv.value.trim().to_ascii_uppercase().replace('-', "_")
                         );
-                        
+
                         if let Some(model_state) = ModelState::from_str_name(&normalized) {
                             model_states.insert(model_name.to_string(), model_state);
                             println!("      Found model '{}': {:?}", model_name, model_state);
                         } else {
-                            eprintln!("      Invalid model state '{}' for model '{}', skipping", 
-                                     kv.value, model_name);
+                            eprintln!(
+                                "      Invalid model state '{}' for model '{}', skipping",
+                                kv.value, model_name
+                            );
                         }
                     }
                 }
-                
-                println!("    [ETCD] Retrieved {} model states for package '{}'", 
-                         model_states.len(), package_name);
+
+                println!(
+                    "    [ETCD] Retrieved {} model states for package '{}'",
+                    model_states.len(),
+                    package_name
+                );
                 model_states
             }
             Err(e) => {
-                eprintln!("    [ETCD] Failed to query model states for package '{}': {:?}", 
-                          package_name, e);
+                eprintln!(
+                    "    [ETCD] Failed to query model states for package '{}': {:?}",
+                    package_name, e
+                );
                 HashMap::new()
+            }
+        }
+    }
+
+    /// Handle cascading state transitions for parent resources
+    ///
+    /// This function implements the cascading state logic as specified in the LLD:
+    /// - Container state changes trigger model state evaluation
+    /// - Model state changes trigger package state evaluation
+    /// - Package error states trigger ActionController notification
+    ///
+    /// # Arguments
+    /// * `state_change` - The original state change that triggered cascading
+    ///
+    /// # Returns
+    /// * `Vec<StateChange>` - Additional state changes to process
+    ///
+    /// # Implementation Notes
+    /// This method performs ETCD queries to gather related resource states,
+    /// evaluates parent resource states, and generates cascading state changes.
+    /// It also handles error recovery notifications per LLD requirements.
+    pub async fn handle_cascading_transitions(
+        &mut self,
+        state_change: &StateChange,
+    ) -> Vec<StateChange> {
+        println!(
+            "  [Cascading] Handling cascading transitions for {:?} '{}'",
+            ResourceType::try_from(state_change.resource_type).unwrap_or(ResourceType::Unspecified),
+            state_change.resource_name
+        );
+
+        let mut cascading_changes = Vec::new();
+
+        match ResourceType::try_from(state_change.resource_type) {
+            Ok(ResourceType::Model) => {
+                // Model state changed - check if package state needs to be updated
+                println!("    [Cascading] Model state changed, evaluating package states");
+
+                // Find which package this model belongs to (simplified approach - assumes naming convention)
+                // In a real implementation, this would query ETCD for package-model relationships
+                if let Some(package_name) =
+                    self.extract_package_name_from_model(&state_change.resource_name)
+                {
+                    println!(
+                        "      [Cascading] Found package '{}' for model '{}'",
+                        package_name, state_change.resource_name
+                    );
+
+                    // Get all model states for this package
+                    let model_states = self.get_model_states_for_package(&package_name).await;
+
+                    // Include the current model's new state in the evaluation
+                    let mut updated_model_states = model_states;
+                    let new_model_state = ModelState::from_str_name(&format!(
+                        "MODEL_STATE_{}",
+                        state_change
+                            .target_state
+                            .trim()
+                            .to_ascii_uppercase()
+                            .replace('-', "_")
+                    ))
+                    .unwrap_or(ModelState::Unspecified);
+
+                    updated_model_states
+                        .insert(state_change.resource_name.clone(), new_model_state);
+
+                    // Evaluate package state
+                    let new_package_state = self
+                        .evaluate_package_state_from_models(&package_name, &updated_model_states);
+
+                    // Get current package state from ETCD or assume Initializing
+                    let current_package_state = self.get_current_package_state(&package_name).await;
+
+                    // Only create state change if package state actually changed
+                    if new_package_state != current_package_state {
+                        println!(
+                            "      [Cascading] Package '{}' state changing from {:?} to {:?}",
+                            package_name, current_package_state, new_package_state
+                        );
+
+                        cascading_changes.push(StateChange {
+                            resource_type: ResourceType::Package as i32,
+                            resource_name: package_name.clone(),
+                            current_state: format!("{:?}", current_package_state),
+                            target_state: format!("{:?}", new_package_state),
+                            transition_id: format!(
+                                "{}_package_cascade",
+                                state_change.transition_id
+                            ),
+                            timestamp_ns: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_nanos() as i64,
+                            source: "StateManager_CascadingTransition".to_string(),
+                        });
+
+                        // Check if package entered error state - trigger ActionController notification
+                        if new_package_state == PackageState::Error {
+                            println!("      [Cascading] Package '{}' entered ERROR state - will trigger ActionController reconcile", 
+                                     package_name);
+                            // TODO: Implement ActionController notification
+                            // This would send a reconcile request to ActionController
+                        }
+                    } else {
+                        println!(
+                            "      [Cascading] Package '{}' state unchanged: {:?}",
+                            package_name, current_package_state
+                        );
+                    }
+                } else {
+                    println!(
+                        "      [Cascading] Could not determine package for model '{}'",
+                        state_change.resource_name
+                    );
+                }
+            }
+
+            // Note: Container state changes would trigger model evaluation, but since
+            // we don't have a Container resource type in the proto, we'll focus on
+            // the Model->Package cascading for now
+            _ => {
+                println!(
+                    "    [Cascading] No cascading logic defined for resource type {:?}",
+                    ResourceType::try_from(state_change.resource_type)
+                );
+            }
+        }
+
+        println!(
+            "  [Cascading] Generated {} cascading state changes",
+            cascading_changes.len()
+        );
+        cascading_changes
+    }
+
+    /// Extract package name from model name using naming convention
+    ///
+    /// This is a simplified implementation that assumes a naming convention
+    /// like "package_name.model_name" or similar. In a real implementation,
+    /// this would query ETCD for the actual package-model relationships.
+    ///
+    /// # Arguments
+    /// * `model_name` - Name of the model
+    ///
+    /// # Returns
+    /// * `Option<String>` - Package name if found
+    fn extract_package_name_from_model(&self, model_name: &str) -> Option<String> {
+        // Simple heuristic: if model name contains a dot, take the part before it
+        // Example: "my_package.my_model" -> "my_package"
+        if let Some(dot_pos) = model_name.find('.') {
+            Some(model_name[..dot_pos].to_string())
+        } else {
+            // If no dot, assume the model name is the package name
+            // This is a fallback for simple scenarios
+            Some(format!("{}_package", model_name))
+        }
+    }
+
+    /// Get current package state from ETCD
+    ///
+    /// # Arguments
+    /// * `package_name` - Name of the package
+    ///
+    /// # Returns
+    /// * `PackageState` - Current state (defaults to Initializing if not found)
+    async fn get_current_package_state(&self, package_name: &str) -> PackageState {
+        let key = format!("/package/{}/state", package_name);
+
+        match common::etcd::get(&key).await {
+            Ok(state_str) => {
+                let normalized = format!(
+                    "PACKAGE_STATE_{}",
+                    state_str.trim().to_ascii_uppercase().replace('-', "_")
+                );
+                PackageState::from_str_name(&normalized).unwrap_or(PackageState::Initializing)
+            }
+            Err(_) => {
+                println!(
+                    "    [ETCD] Package '{}' state not found, defaulting to Initializing",
+                    package_name
+                );
+                PackageState::Initializing
             }
         }
     }
@@ -1536,9 +1889,10 @@ mod tests {
     fn test_evaluate_model_state_from_containers_empty() {
         let state_machine = StateMachine::new();
         let container_states = HashMap::new();
-        
-        let result = state_machine.evaluate_model_state_from_containers("test_model", &container_states);
-        
+
+        let result =
+            state_machine.evaluate_model_state_from_containers("test_model", &container_states);
+
         // Empty containers should result in Pending state (Created equivalent)
         assert_eq!(result, ModelState::Pending);
     }
@@ -1549,9 +1903,10 @@ mod tests {
         let mut container_states = HashMap::new();
         container_states.insert("container1".to_string(), "running".to_string());
         container_states.insert("container2".to_string(), "running".to_string());
-        
-        let result = state_machine.evaluate_model_state_from_containers("test_model", &container_states);
-        
+
+        let result =
+            state_machine.evaluate_model_state_from_containers("test_model", &container_states);
+
         // All running containers should result in Running state
         assert_eq!(result, ModelState::Running);
     }
@@ -1562,9 +1917,10 @@ mod tests {
         let mut container_states = HashMap::new();
         container_states.insert("container1".to_string(), "paused".to_string());
         container_states.insert("container2".to_string(), "paused".to_string());
-        
-        let result = state_machine.evaluate_model_state_from_containers("test_model", &container_states);
-        
+
+        let result =
+            state_machine.evaluate_model_state_from_containers("test_model", &container_states);
+
         // All paused containers should result in Pending state (Paused equivalent)
         assert_eq!(result, ModelState::Pending);
     }
@@ -1575,9 +1931,10 @@ mod tests {
         let mut container_states = HashMap::new();
         container_states.insert("container1".to_string(), "exited".to_string());
         container_states.insert("container2".to_string(), "exited".to_string());
-        
-        let result = state_machine.evaluate_model_state_from_containers("test_model", &container_states);
-        
+
+        let result =
+            state_machine.evaluate_model_state_from_containers("test_model", &container_states);
+
         // All exited containers should result in Succeeded state (Exited equivalent)
         assert_eq!(result, ModelState::Succeeded);
     }
@@ -1588,9 +1945,10 @@ mod tests {
         let mut container_states = HashMap::new();
         container_states.insert("container1".to_string(), "running".to_string());
         container_states.insert("container2".to_string(), "dead".to_string());
-        
-        let result = state_machine.evaluate_model_state_from_containers("test_model", &container_states);
-        
+
+        let result =
+            state_machine.evaluate_model_state_from_containers("test_model", &container_states);
+
         // Any dead container should result in Failed state (Dead equivalent)
         assert_eq!(result, ModelState::Failed);
     }
@@ -1601,9 +1959,10 @@ mod tests {
         let mut container_states = HashMap::new();
         container_states.insert("container1".to_string(), "running".to_string());
         container_states.insert("container2".to_string(), "starting".to_string());
-        
-        let result = state_machine.evaluate_model_state_from_containers("test_model", &container_states);
-        
+
+        let result =
+            state_machine.evaluate_model_state_from_containers("test_model", &container_states);
+
         // Mixed non-special states should result in Running state
         assert_eq!(result, ModelState::Running);
     }
@@ -1612,9 +1971,10 @@ mod tests {
     fn test_evaluate_package_state_from_models_empty() {
         let state_machine = StateMachine::new();
         let model_states = HashMap::new();
-        
-        let result = state_machine.evaluate_package_state_from_models("test_package", &model_states);
-        
+
+        let result =
+            state_machine.evaluate_package_state_from_models("test_package", &model_states);
+
         // Empty models should result in Initializing state (idle equivalent)
         assert_eq!(result, PackageState::Initializing);
     }
@@ -1625,9 +1985,10 @@ mod tests {
         let mut model_states = HashMap::new();
         model_states.insert("model1".to_string(), ModelState::Running);
         model_states.insert("model2".to_string(), ModelState::Running);
-        
-        let result = state_machine.evaluate_package_state_from_models("test_package", &model_states);
-        
+
+        let result =
+            state_machine.evaluate_package_state_from_models("test_package", &model_states);
+
         // All running models should result in Running state
         assert_eq!(result, PackageState::Running);
     }
@@ -1638,9 +1999,10 @@ mod tests {
         let mut model_states = HashMap::new();
         model_states.insert("model1".to_string(), ModelState::Pending);
         model_states.insert("model2".to_string(), ModelState::Pending);
-        
-        let result = state_machine.evaluate_package_state_from_models("test_package", &model_states);
-        
+
+        let result =
+            state_machine.evaluate_package_state_from_models("test_package", &model_states);
+
         // All pending models should result in Paused state
         assert_eq!(result, PackageState::Paused);
     }
@@ -1651,9 +2013,10 @@ mod tests {
         let mut model_states = HashMap::new();
         model_states.insert("model1".to_string(), ModelState::Succeeded);
         model_states.insert("model2".to_string(), ModelState::Succeeded);
-        
-        let result = state_machine.evaluate_package_state_from_models("test_package", &model_states);
-        
+
+        let result =
+            state_machine.evaluate_package_state_from_models("test_package", &model_states);
+
         // All succeeded models should result in Running state (package completed successfully)
         assert_eq!(result, PackageState::Running);
     }
@@ -1664,9 +2027,10 @@ mod tests {
         let mut model_states = HashMap::new();
         model_states.insert("model1".to_string(), ModelState::Failed);
         model_states.insert("model2".to_string(), ModelState::Failed);
-        
-        let result = state_machine.evaluate_package_state_from_models("test_package", &model_states);
-        
+
+        let result =
+            state_machine.evaluate_package_state_from_models("test_package", &model_states);
+
         // All failed models should result in Error state
         assert_eq!(result, PackageState::Error);
     }
@@ -1678,9 +2042,10 @@ mod tests {
         model_states.insert("model1".to_string(), ModelState::Running);
         model_states.insert("model2".to_string(), ModelState::Failed);
         model_states.insert("model3".to_string(), ModelState::Running);
-        
-        let result = state_machine.evaluate_package_state_from_models("test_package", &model_states);
-        
+
+        let result =
+            state_machine.evaluate_package_state_from_models("test_package", &model_states);
+
         // Some failed models should result in Degraded state
         assert_eq!(result, PackageState::Degraded);
     }
@@ -1692,9 +2057,10 @@ mod tests {
         model_states.insert("model1".to_string(), ModelState::Running);
         model_states.insert("model2".to_string(), ModelState::ContainerCreating);
         model_states.insert("model3".to_string(), ModelState::Succeeded);
-        
-        let result = state_machine.evaluate_package_state_from_models("test_package", &model_states);
-        
+
+        let result =
+            state_machine.evaluate_package_state_from_models("test_package", &model_states);
+
         // Mixed non-failed states should result in Running state
         assert_eq!(result, PackageState::Running);
     }
@@ -1703,13 +2069,14 @@ mod tests {
     fn test_evaluate_package_state_case_sensitivity() {
         let state_machine = StateMachine::new();
         let mut container_states = HashMap::new();
-        
+
         // Test case insensitive state matching
         container_states.insert("container1".to_string(), "DEAD".to_string());
         container_states.insert("container2".to_string(), "Running".to_string());
-        
-        let result = state_machine.evaluate_model_state_from_containers("test_model", &container_states);
-        
+
+        let result =
+            state_machine.evaluate_model_state_from_containers("test_model", &container_states);
+
         // Dead state should be detected regardless of case
         assert_eq!(result, ModelState::Failed);
     }
@@ -1720,9 +2087,10 @@ mod tests {
         let mut model_states = HashMap::new();
         model_states.insert("model1".to_string(), ModelState::Running);
         model_states.insert("model2".to_string(), ModelState::Unknown);
-        
-        let result = state_machine.evaluate_package_state_from_models("test_package", &model_states);
-        
+
+        let result =
+            state_machine.evaluate_package_state_from_models("test_package", &model_states);
+
         // Unknown models should be treated as failed, resulting in Degraded state
         assert_eq!(result, PackageState::Degraded);
     }

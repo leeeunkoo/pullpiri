@@ -285,91 +285,116 @@ impl StateManagerManager {
         //    - Implement circuit breaker patterns for failing external dependencies
 
         // ========================================
-        // STEP 3: STATE MACHINE PROCESSING
+        // STEP 3: STATE MACHINE PROCESSING WITH CASCADING
         // ========================================
-        // Process the state change request through the core state machine.
+        // Process the state change request through the core state machine with cascading.
         // This is where the actual business logic and state transition rules are applied.
         // The state machine handles:
         // - Validation of transition rules for the specific resource type
         // - Condition evaluation for conditional transitions
+        // - ETCD persistence of state changes
+        // - Cascading state evaluation for parent resources
         // - Action scheduling for follow-up operations
         // - Error detection and reporting
-        let result = {
+        let results = {
             // Acquire exclusive lock on the state machine for this transition
             // Note: This serializes all state transitions to maintain consistency
             let mut state_machine = self.state_machine.lock().await;
-            state_machine.process_state_change(state_change.clone())
+            state_machine
+                .process_state_change_with_cascading(state_change.clone())
+                .await
         }; // Lock is automatically released here
 
         // ========================================
         // STEP 4: RESULT PROCESSING AND RESPONSE
         // ========================================
-        // Handle the outcome of the state transition attempt.
+        // Handle the outcome of the state transition attempt(s).
         // Success and failure paths have different logging and follow-up actions.
-        if result.is_success() {
-            // ========================================
-            // SUCCESS PATH: Log positive outcome and queue actions
-            // ========================================
-            println!("  ✓ State transition completed successfully");
-            // Convert new_state to string representation based on resource type only for logs
-            let new_state_str = match resource_type {
-                ResourceType::Scenario => ScenarioState::try_from(result.new_state)
-                    .map(|s| s.as_str_name())
-                    .unwrap_or("UNKNOWN"),
-                ResourceType::Package => PackageState::try_from(result.new_state)
-                    .map(|s| s.as_str_name())
-                    .unwrap_or("UNKNOWN"),
-                ResourceType::Model => ModelState::try_from(result.new_state)
-                    .map(|s| s.as_str_name())
-                    .unwrap_or("UNKNOWN"),
-                _ => "UNKNOWN",
-            };
-            println!("    Final State: {new_state_str}");
-            println!("    Success Message: {}", result.message);
-            println!("    Transition ID: {}", result.transition_id);
 
-            // Log any actions that were queued for asynchronous execution
-            // Actions are processed separately to keep state transitions fast
-            if !result.actions_to_execute.is_empty() {
-                println!("    Actions queued for async execution:");
-                for action in &result.actions_to_execute {
-                    println!("      - {action}");
+        if let Some(primary_result) = results.first() {
+            if primary_result.is_success() {
+                // ========================================
+                // SUCCESS PATH: Log positive outcome and handle cascading results
+                // ========================================
+                println!("  ✓ Primary state transition completed successfully");
+
+                // Log cascading results
+                if results.len() > 1 {
+                    println!("  ✓ Processed {} cascading transitions", results.len() - 1);
+                    for (i, result) in results.iter().skip(1).enumerate() {
+                        if result.is_success() {
+                            println!(
+                                "    ✓ Cascading transition #{} succeeded: {}",
+                                i + 1,
+                                result.message
+                            );
+                        } else {
+                            println!(
+                                "    ✗ Cascading transition #{} failed: {}",
+                                i + 1,
+                                result.message
+                            );
+                        }
+                    }
                 }
-                println!(
-                    "    Note: Actions will be executed asynchronously by the action executor"
-                );
+
+                // Convert new_state to string representation based on resource type only for logs
+                let new_state_str = match resource_type {
+                    ResourceType::Scenario => ScenarioState::try_from(primary_result.new_state)
+                        .map(|s| s.as_str_name())
+                        .unwrap_or("UNKNOWN"),
+                    ResourceType::Package => PackageState::try_from(primary_result.new_state)
+                        .map(|s| s.as_str_name())
+                        .unwrap_or("UNKNOWN"),
+                    ResourceType::Model => ModelState::try_from(primary_result.new_state)
+                        .map(|s| s.as_str_name())
+                        .unwrap_or("UNKNOWN"),
+                    _ => "UNKNOWN",
+                };
+                println!("    New State: {new_state_str}");
+                println!("    Transition ID: {}", primary_result.transition_id);
+
+                // Queue actions for execution if any were specified
+                if !primary_result.actions_to_execute.is_empty() {
+                    println!(
+                        "    Actions Queued: {:?}",
+                        primary_result.actions_to_execute
+                    );
+                }
+
+                println!("  Status: State change processing completed successfully");
+            } else {
+                // ========================================
+                // FAILURE PATH: Log error details and failure handling
+                // ========================================
+                println!("  ✗ State transition failed");
+                let new_state_str = match resource_type {
+                    ResourceType::Scenario => ScenarioState::try_from(primary_result.new_state)
+                        .map(|s| s.as_str_name())
+                        .unwrap_or("UNKNOWN"),
+                    ResourceType::Package => PackageState::try_from(primary_result.new_state)
+                        .map(|s| s.as_str_name())
+                        .unwrap_or("UNKNOWN"),
+                    ResourceType::Model => ModelState::try_from(primary_result.new_state)
+                        .map(|s| s.as_str_name())
+                        .unwrap_or("UNKNOWN"),
+                    _ => "UNKNOWN",
+                };
+                println!("    Error Code: {:?}", primary_result.error_code);
+                println!("    Error Message: {}", primary_result.message);
+                println!("    Error Details: {}", primary_result.error_details);
+                println!("    Current State: {new_state_str} (unchanged)");
+                println!("    Failed Transition ID: {}", primary_result.transition_id);
+
+                // Delegate to specialized failure handling logic
+                // This method will analyze the failure type and determine appropriate recovery actions
+                self.handle_transition_failure(&state_change, primary_result)
+                    .await;
+
+                println!("  Status: State change processing completed with errors");
             }
-
-            println!("  Status: State change processing completed successfully");
         } else {
-            // ========================================
-            // FAILURE PATH: Log error details and initiate recovery
-            // ========================================
-            println!("  ✗ State transition failed");
-            // Convert new_state to string representation based on resource type only for logs
-            let new_state_str = match resource_type {
-                ResourceType::Scenario => ScenarioState::try_from(result.new_state)
-                    .map(|s| s.as_str_name())
-                    .unwrap_or("UNKNOWN"),
-                ResourceType::Package => PackageState::try_from(result.new_state)
-                    .map(|s| s.as_str_name())
-                    .unwrap_or("UNKNOWN"),
-                ResourceType::Model => ModelState::try_from(result.new_state)
-                    .map(|s| s.as_str_name())
-                    .unwrap_or("UNKNOWN"),
-                _ => "UNKNOWN",
-            };
-            println!("    Error Code: {:?}", result.error_code);
-            println!("    Error Message: {}", result.message);
-            println!("    Error Details: {}", result.error_details);
-            println!("    Current State: {new_state_str} (unchanged)");
-            println!("    Failed Transition ID: {}", result.transition_id);
-
-            // Delegate to specialized failure handling logic
-            // This method will analyze the failure type and determine appropriate recovery actions
-            self.handle_transition_failure(&state_change, &result).await;
-
-            println!("  Status: State change processing completed with errors");
+            eprintln!("  ✗ No results returned from state machine processing");
         }
 
         println!("================================");
