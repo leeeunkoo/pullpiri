@@ -50,12 +50,12 @@ impl NodeManager {
         // Store in etcd as base64 encoded binary
         let encoded = base64::engine::general_purpose::STANDARD.encode(&buf);
         etcd::put(&node_key, &encoded).await?;
-        
+
         // Also add to simple keys for quick lookup
         // 1. IP 주소로 조회하는 키
         let ip_key = format!("nodes/{}", request.ip_address);
         etcd::put(&ip_key, &request.ip_address).await?;
-        
+
         // 2. 호스트 이름으로 조회하는 키
         let hostname_key = format!("nodes/{}", request.hostname);
         etcd::put(&hostname_key, &request.ip_address).await?;
@@ -90,7 +90,7 @@ impl NodeManager {
 
         Ok(nodes)
     }
-    
+
     /// Get all nodes in the cluster (alias for get_all_nodes)
     pub async fn get_nodes(
         &self,
@@ -170,11 +170,11 @@ impl NodeManager {
         if let Some(node) = self.get_node(node_id).await? {
             let node_key = format!("cluster/nodes/{}", node.hostname);
             etcd::delete(&node_key).await?;
-            
+
             println!("Removed node {} from cluster", node_id);
             return Ok(());
         }
-        
+
         // 노드를 찾지 못한 경우 오류 반환
         Err(format!("Node not found: {}", node_id).into())
     }

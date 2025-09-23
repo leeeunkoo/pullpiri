@@ -1,13 +1,13 @@
 use std::{thread, time::Duration};
 
 use crate::{grpc::sender::pharos::request_network_pod, runtime::bluechi};
+use base64::Engine;
 use common::{
     actioncontroller::PodStatus as Status,
     spec::artifact::{Network, Node, Package, Scenario},
     Result,
 };
-use prost::Message; // Prost Message 트레이트 추가
-use base64::Engine; // base64 Engine 트레이트 추가
+use prost::Message; // Prost Message 트레이트 추가 // base64 Engine 트레이트 추가
 
 /// Manager for coordinating scenario actions and workload operations
 ///
@@ -60,7 +60,10 @@ impl ActionControllerManager {
         let node_ip = match common::etcd::get(&node_info_key).await {
             Ok(ip) => ip,
             Err(e) => {
-                println!("Warning: Failed to get IP for node '{}' from etcd: {}", node_name, e);
+                println!(
+                    "Warning: Failed to get IP for node '{}' from etcd: {}",
+                    node_name, e
+                );
                 // settings.yaml 파일의 호스트 정보 사용
                 let config = common::setting::get_config();
                 if config.host.name == node_name {
@@ -71,13 +74,16 @@ impl ActionControllerManager {
                 }
             }
         };
-        
+
         // 2. 이제 cluster/nodes 접두사에서 상세 정보 조회 시도
         let cluster_node_key = format!("cluster/nodes/{}", node_name);
         let encoded = match common::etcd::get(&cluster_node_key).await {
             Ok(value) => value,
             Err(e) => {
-                println!("Warning: Failed to get details for node '{}' from etcd: {}", node_name, e);
+                println!(
+                    "Warning: Failed to get details for node '{}' from etcd: {}",
+                    node_name, e
+                );
                 // settings.yaml 파일의 호스트 정보 사용
                 let config = common::setting::get_config();
                 if config.host.name == node_name {
@@ -94,20 +100,20 @@ impl ActionControllerManager {
                 }
             }
         };
-        
+
         // 3. base64 디코드 및 NodeInfo 디코드
         let buf = base64::engine::general_purpose::STANDARD.decode(&encoded)?;
         let node_info = common::apiserver::NodeInfo::decode(buf.as_slice())?;
-        
+
         // 4. node_role 값에 따라 노드 유형 결정 (node_role: 3 = Bluechi, 2 = Nodeagent)
-        let role = if node_info.node_role == 3 { 
-            "bluechi".to_string() 
-        } else if node_info.node_role == 2 { 
-            "nodeagent".to_string() 
+        let role = if node_info.node_role == 3 {
+            "bluechi".to_string()
+        } else if node_info.node_role == 2 {
+            "nodeagent".to_string()
         } else {
             return Err(format!("Unknown node role: {}", node_info.node_role).into());
         };
-        
+
         println!("Node {} role loaded from etcd: {}", node_name, role);
         Ok(role)
     }
@@ -180,37 +186,46 @@ impl ActionControllerManager {
 
         // 각 모델의 노드 정보를 etcd에서 확인
         let mut node_roles = std::collections::HashMap::new();
-        
+
         for mi in package.get_models() {
             let model_name = format!("{}.service", mi.get_name());
             let model_node = mi.get_node();
-            
+
             // 노드 역할 정보가 캐시에 없으면 etcd에서 가져옴
             if !node_roles.contains_key(&model_node) {
                 match self.get_node_role_from_etcd(&model_node).await {
                     Ok(role) => {
                         node_roles.insert(model_node.clone(), role);
-                    },
+                    }
                     Err(e) => {
-                        println!("Warning: Failed to get role for node '{}' from etcd: {}", model_node, e);
+                        println!(
+                            "Warning: Failed to get role for node '{}' from etcd: {}",
+                            model_node, e
+                        );
                         // etcd에서 정보를 찾을 수 없으면 설정 파일 정보 확인
                         if self.bluechi_nodes.contains(&model_node) {
                             node_roles.insert(model_node.clone(), "bluechi".to_string());
-                            println!("Node {} found in bluechi_nodes from cached list", model_node);
+                            println!(
+                                "Node {} found in bluechi_nodes from cached list",
+                                model_node
+                            );
                         } else if self.nodeagent_nodes.contains(&model_node) {
                             node_roles.insert(model_node.clone(), "nodeagent".to_string());
-                            println!("Node {} found in nodeagent_nodes from cached list", model_node);
+                            println!(
+                                "Node {} found in nodeagent_nodes from cached list",
+                                model_node
+                            );
                         }
                     }
                 }
             }
-            
+
             // 노드 역할 정보를 사용하여 처리
             let node_type = match node_roles.get(&model_node) {
                 Some(role) => {
                     println!("Using node {} as {}", model_node, role);
                     role.as_str()
-                },
+                }
                 None => {
                     // 역할 정보를 찾을 수 없으면 스킵
                     println!(

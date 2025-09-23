@@ -76,7 +76,7 @@ impl NodeAgentSender {
         let config = crate::config::Config::get();
         let master_ip = config.nodeagent.master_ip.clone();
         let addr = format!("http://{}:47003", master_ip);
-        
+
         let client = MonitoringServerConnectionClient::connect(addr).await;
 
         match client {
@@ -115,7 +115,7 @@ impl NodeAgentSender {
         let config = crate::config::Config::get();
         let master_ip = config.nodeagent.master_ip.clone();
         let addr = format!("http://{}:47098", master_ip);
-        
+
         let client = ApiServerConnectionClient::connect(addr).await;
 
         match client {
@@ -147,7 +147,7 @@ impl NodeAgentSender {
         let config = crate::config::Config::get();
         let master_ip = config.nodeagent.master_ip.clone();
         let master_endpoint = format!("http://{}:47098", master_ip);
-        
+
         Ok(tonic::Response::new(HeartbeatResponse {
             ack: true,
             updated_config: Some(common::nodeagent::ClusterConfig {

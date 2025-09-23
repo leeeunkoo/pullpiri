@@ -68,7 +68,7 @@ impl NodeAgentConnection for NodeAgentReceiver {
         // This is typically called by the master node, not the node itself
         let config = crate::config::Config::get();
         let master_ip = config.nodeagent.master_ip.clone();
-        
+
         let response = NodeRegistrationResponse {
             success: true,
             message: "Node registration processed".to_string(),
@@ -115,7 +115,7 @@ impl NodeAgentConnection for NodeAgentReceiver {
 
         let config = crate::config::Config::get();
         let master_ip = config.nodeagent.master_ip.clone();
-        
+
         let response = HeartbeatResponse {
             ack: true,
             updated_config: Some(common::nodeagent::ClusterConfig {

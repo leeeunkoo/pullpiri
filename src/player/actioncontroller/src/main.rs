@@ -20,11 +20,11 @@ async fn initialize(skip_grpc: bool) -> Result<(), Box<dyn Error>> {
     // 기본 설정 정보에서 노드 역할 확인
     let config = common::setting::get_config();
     let mut manager = manager::ActionControllerManager::new();
-    
+
     // 설정 파일의 호스트 정보 확인 (노드 역할 사전 설정)
     let hostname = &config.host.name;
     let node_type = &config.host.r#type;
-    
+
     if node_type == "bluechi" {
         println!("Adding {} to bluechi_nodes from settings.yaml", hostname);
         manager.bluechi_nodes.push(hostname.clone());
@@ -32,7 +32,7 @@ async fn initialize(skip_grpc: bool) -> Result<(), Box<dyn Error>> {
         println!("Adding {} to nodeagent_nodes from settings.yaml", hostname);
         manager.nodeagent_nodes.push(hostname.clone());
     }
-    
+
     // gRPC 서버 초기화 (테스트 모드가 아닌 경우)
     if !skip_grpc {
         grpc::init(manager).await?;

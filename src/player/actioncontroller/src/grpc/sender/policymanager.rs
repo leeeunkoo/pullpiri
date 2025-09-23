@@ -68,7 +68,6 @@ pub async fn check_policy(scenario_name: String) -> Result<()> {
     }
 }
 
-
 // ===========================
 // UNIT TESTS
 // ===========================
