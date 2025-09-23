@@ -1,4 +1,4 @@
-use common::statemanager::{ErrorCode, ResourceType};
+use common::statemanager::{ErrorCode, ModelState, PackageState, ResourceType};
 use std::collections::HashMap;
 use tokio::time::Instant;
 // ========================================
@@ -56,4 +56,47 @@ pub struct TransitionResult {
     pub actions_to_execute: Vec<String>,
     pub transition_id: String,
     pub error_details: String,
+}
+
+// ========================================
+// MODEL/PACKAGE STATE MANAGEMENT TYPES
+// ========================================
+
+/// Container state mapping based on LLD requirements
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContainerState {
+    Created,
+    Running,
+    Stopped,
+    Exited,
+    Dead,
+    Paused,
+}
+
+/// Container update processing result
+#[derive(Debug, Clone)]
+pub struct ContainerUpdateResult {
+    pub affected_models: Vec<String>,
+    pub affected_packages: Vec<String>,
+    pub reconcile_requests: Vec<String>, // Package names requiring reconcile
+}
+
+/// Model state aggregation info
+#[derive(Debug, Clone)]
+pub struct ModelStateInfo {
+    pub model_name: String,
+    pub previous_state: ModelState,
+    pub current_state: ModelState,
+    pub container_count: usize,
+    pub container_states: HashMap<String, ContainerState>,
+}
+
+/// Package state aggregation info  
+#[derive(Debug, Clone)]
+pub struct PackageStateInfo {
+    pub package_name: String,
+    pub previous_state: PackageState,
+    pub current_state: PackageState,
+    pub model_count: usize,
+    pub model_states: HashMap<String, ModelState>,
 }

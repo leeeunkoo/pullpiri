@@ -425,68 +425,84 @@ impl StateManagerManager {
     /// * `container_list` - ContainerList message with node and container status
     ///
     /// # Processing Steps
-    /// 1. Analyze container health and status changes
-    /// 2. Identify resources affected by container changes
-    /// 3. Trigger state transitions for failed or recovered containers
-    /// 4. Update resource health status and monitoring data
+    /// Process container list updates and trigger model/package state changes
+    ///
+    /// This method implements the core container-to-model-to-package state aggregation
+    /// logic according to the LLD specifications. It processes container updates,
+    /// determines which models and packages are affected, and triggers appropriate
+    /// state transitions and reconciliation requests.
+    ///
+    /// # Arguments
+    /// * `container_list` - ContainerList message from nodeagent containing current container states
+    ///
+    /// # Processing Flow
+    /// 1. Process container updates through state machine
+    /// 2. Log affected resources for audit trails
+    /// 3. Trigger ActionController reconcile for dead packages
     async fn process_container_list(&self, container_list: ContainerList) {
         println!("=== PROCESSING CONTAINER LIST ===");
         println!("  Node Name: {}", container_list.node_name);
         println!("  Container Count: {}", container_list.containers.len());
 
-        // Process each container for health status analysis
-        for (i, container) in container_list.containers.iter().enumerate() {
-            // container.names is a Vec<String>, so join them for display
-            let container_names = container.names.join(", ");
-            println!("  Container {}: {}", i + 1, container_names);
-            println!("    Image: {}", container.image);
-            println!("    State: {:?}", container.state);
-            println!("    ID: {}", container.id);
+        // Process container updates through the state machine
+        let result = {
+            let mut state_machine = self.state_machine.lock().await;
+            match state_machine
+                .process_container_updates(container_list)
+                .await
+            {
+                Ok(result) => Some(result),
+                Err(e) => {
+                    eprintln!("Error processing container updates: {:?}", e);
+                    None
+                }
+            }
+        };
 
-            // container.config is a HashMap, not an Option
-            if !container.config.is_empty() {
-                println!("    Config: {:?}", container.config);
+        if let Some(update_result) = result {
+            // Log successful processing
+            println!("  Affected Models: {}", update_result.affected_models.len());
+            for model in &update_result.affected_models {
+                println!("    Model: {}", model);
             }
 
-            // Process container annotations if available
-            if !container.annotation.is_empty() {
-                println!("    Annotations: {:?}", container.annotation);
+            println!(
+                "  Affected Packages: {}",
+                update_result.affected_packages.len()
+            );
+            for package in &update_result.affected_packages {
+                println!("    Package: {}", package);
             }
 
-            // TODO: Implement comprehensive container processing:
-            //
-            // 1. HEALTH STATUS ANALYSIS
-            //    - Analyze container state changes (running -> failed, etc.)
-            //    - Check exit codes for failure conditions
-            //    - Monitor resource usage and performance metrics
-            //    - Detect container restart loops and crash patterns
-            //
-            // 2. RESOURCE MAPPING
-            //    - Map containers to managed resources (scenarios, packages, models)
-            //    - Identify which resources are affected by container changes
-            //    - Determine impact on dependent resources
-            //
-            // 3. STATE TRANSITION TRIGGERS
-            //    - Trigger state transitions for failed containers
-            //    - Handle container recovery and restart scenarios
-            //    - Update resource states based on container health
-            //    - Escalate to recovery management for critical failures
-            //
-            // 4. HEALTH STATUS UPDATES
-            //    - Update resource health status based on container state
-            //    - Generate health check events and notifications
-            //    - Update monitoring and observability data
-            //    - Maintain health history for trend analysis
-            //
-            // 5. ASIL COMPLIANCE MONITORING
-            //    - Monitor ASIL-critical containers for safety violations
-            //    - Generate alerts for safety-critical container failures
-            //    - Implement timing constraints for container recovery
-            //    - Ensure safety systems remain operational
+            // Handle reconcile requests for dead packages
+            if !update_result.reconcile_requests.is_empty() {
+                println!(
+                    "  Reconcile Requests: {}",
+                    update_result.reconcile_requests.len()
+                );
+                for package in &update_result.reconcile_requests {
+                    println!("    Reconciling Package: {}", package);
+                    self.trigger_package_reconcile(package).await;
+                }
+            }
+        } else {
+            println!("  Failed to process container updates");
         }
 
-        println!("  Status: Container list processing completed (implementation pending)");
-        println!("=====================================");
+        println!("=== CONTAINER LIST PROCESSING COMPLETE ===");
+    }
+
+    /// Trigger ActionController reconcile for dead packages
+    async fn trigger_package_reconcile(&self, package_name: &str) {
+        // TODO: Implement gRPC call to ActionController for reconcile
+        // For now, just log the reconcile request
+        println!(
+            "RECONCILE REQUEST: Package '{}' requires reconciliation",
+            package_name
+        );
+
+        // Future implementation should send gRPC request to ActionController
+        // using existing sender patterns from other components
     }
 
     /// Main message processing loop for handling gRPC requests.

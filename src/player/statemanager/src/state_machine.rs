@@ -26,7 +26,11 @@
 //! let result = state_machine.process_state_change(state_change);
 //! ```
 
-use crate::types::{ActionCommand, HealthStatus, ResourceState, StateTransition, TransitionResult};
+use crate::types::{
+    ActionCommand, ContainerState, ContainerUpdateResult, HealthStatus, ModelStateInfo,
+    PackageStateInfo, ResourceState, StateTransition, TransitionResult,
+};
+use common::monitoringserver::{ContainerInfo, ContainerList};
 use common::statemanager::{
     ErrorCode, ModelState, PackageState, ResourceType, ScenarioState, StateChange,
 };
@@ -1199,6 +1203,338 @@ impl StateMachine {
                 .map(|s| s as i32)
                 .unwrap_or(ModelState::Unspecified as i32),
             _ => 0,
+        }
+    }
+
+    // ========================================
+    // CONTAINER STATE PROCESSING
+    // ========================================
+
+    /// Process container updates and trigger cascading state changes
+    pub async fn process_container_updates(
+        &mut self,
+        container_list: ContainerList,
+    ) -> Result<ContainerUpdateResult, String> {
+        let mut result = ContainerUpdateResult {
+            affected_models: Vec::new(),
+            affected_packages: Vec::new(),
+            reconcile_requests: Vec::new(),
+        };
+
+        // Group containers by model (extracted from container names/annotations)
+        let mut models: HashMap<String, Vec<&ContainerInfo>> = HashMap::new();
+
+        for container in &container_list.containers {
+            if let Some(model_name) = self.extract_model_name_from_container(container) {
+                models.entry(model_name).or_default().push(container);
+            }
+        }
+
+        // Process each model's containers and update model states
+        for (model_name, containers) in models {
+            if let Ok(state_info) = self
+                .process_model_state_change(&model_name, &containers)
+                .await
+            {
+                if state_info.previous_state != state_info.current_state {
+                    result.affected_models.push(model_name.clone());
+
+                    // Check if package state needs updating
+                    if let Some(package_name) = self.extract_package_name_from_model(&model_name) {
+                        if let Ok(package_state_info) =
+                            self.process_package_state_change(&package_name).await
+                        {
+                            if package_state_info.previous_state != package_state_info.current_state
+                            {
+                                result.affected_packages.push(package_name.clone());
+
+                                // Check if package became dead/error and needs reconcile
+                                if package_state_info.current_state == PackageState::Error {
+                                    result.reconcile_requests.push(package_name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Process model state change based on container states
+    async fn process_model_state_change(
+        &mut self,
+        model_name: &str,
+        containers: &[&ContainerInfo],
+    ) -> Result<ModelStateInfo, String> {
+        // Get current model state from etcd or default to Pending
+        let previous_state = self
+            .get_model_state_from_etcd(model_name)
+            .await
+            .unwrap_or(ModelState::Pending);
+
+        // Map container states according to LLD
+        let container_states: HashMap<String, ContainerState> = containers
+            .iter()
+            .map(|container| {
+                let container_id = container.id.clone();
+                let state = self.map_container_state_from_info(container);
+                (container_id, state)
+            })
+            .collect();
+
+        // Determine new model state based on aggregated container states
+        let current_state = self.aggregate_container_states_to_model(model_name, containers);
+
+        // Save to etcd if state changed
+        if previous_state != current_state {
+            self.save_model_state(model_name, current_state).await?;
+        }
+
+        Ok(ModelStateInfo {
+            model_name: model_name.to_string(),
+            previous_state,
+            current_state,
+            container_count: containers.len(),
+            container_states,
+        })
+    }
+
+    /// Process package state change based on model states
+    async fn process_package_state_change(
+        &mut self,
+        package_name: &str,
+    ) -> Result<PackageStateInfo, String> {
+        // Get current package state from etcd or default to Initializing
+        let previous_state = self
+            .get_package_state_from_etcd(package_name)
+            .await
+            .unwrap_or(PackageState::Initializing);
+
+        // Get all models in this package
+        let model_names = self.get_package_models(package_name).await?;
+        let mut model_states = HashMap::new();
+
+        for model_name in &model_names {
+            if let Ok(state) = self.get_model_state_from_etcd(model_name).await {
+                model_states.insert(model_name.clone(), state);
+            }
+        }
+
+        // Determine new package state based on aggregated model states
+        let current_state = self.aggregate_model_states_to_package(package_name, &model_states);
+
+        // Save to etcd if state changed
+        if previous_state != current_state {
+            self.save_package_state(package_name, current_state).await?;
+        }
+
+        Ok(PackageStateInfo {
+            package_name: package_name.to_string(),
+            previous_state,
+            current_state,
+            model_count: model_names.len(),
+            model_states,
+        })
+    }
+
+    /// Aggregate container states to determine model state per LLD rules
+    fn aggregate_container_states_to_model(
+        &self,
+        _model_name: &str,
+        containers: &[&ContainerInfo],
+    ) -> ModelState {
+        if containers.is_empty() {
+            return ModelState::Pending; // Created state - no containers yet
+        }
+
+        let container_states: Vec<ContainerState> = containers
+            .iter()
+            .map(|container| self.map_container_state_from_info(container))
+            .collect();
+
+        // Apply LLD state transition rules
+        if container_states.contains(&ContainerState::Dead) {
+            // One or more containers are dead
+            ModelState::Failed // Map to Failed as closest match to Dead
+        } else if container_states
+            .iter()
+            .all(|s| *s == ContainerState::Paused)
+        {
+            // All containers are paused (no direct mapping, use Running)
+            ModelState::Running
+        } else if container_states
+            .iter()
+            .all(|s| *s == ContainerState::Exited)
+        {
+            // All containers are exited
+            ModelState::Succeeded // Map to Succeeded as closest match to Exited
+        } else if container_states.contains(&ContainerState::Running) {
+            // At least one container is running
+            ModelState::Running
+        } else {
+            // Default state
+            ModelState::Running
+        }
+    }
+
+    /// Aggregate model states to determine package state per LLD rules
+    fn aggregate_model_states_to_package(
+        &self,
+        _package_name: &str,
+        model_states: &HashMap<String, ModelState>,
+    ) -> PackageState {
+        if model_states.is_empty() {
+            return PackageState::Initializing; // Idle state
+        }
+
+        let states: Vec<ModelState> = model_states.values().cloned().collect();
+
+        // Apply LLD state transition rules
+        if states.iter().all(|s| *s == ModelState::Failed) {
+            // All models are dead -> Error
+            PackageState::Error
+        } else if states.contains(&ModelState::Failed) {
+            // Some models are dead but not all -> Degraded
+            PackageState::Degraded
+        } else if states.iter().all(|s| *s == ModelState::Succeeded) {
+            // All models are exited (using Succeeded as proxy) -> Running (no direct Exited mapping)
+            PackageState::Running
+        } else {
+            // Default state
+            PackageState::Running
+        }
+    }
+
+    /// Map container state from ContainerInfo to our ContainerState enum
+    fn map_container_state_from_info(&self, container: &ContainerInfo) -> ContainerState {
+        // Container state is in the state map - look for common state keys
+        if let Some(status) = container.state.get("Status") {
+            self.map_container_state(status)
+        } else if let Some(state) = container.state.get("State") {
+            self.map_container_state(state)
+        } else {
+            // If no state info available, consider it dead
+            ContainerState::Dead
+        }
+    }
+
+    /// Map container state string to standardized enum
+    fn map_container_state(&self, state: &str) -> ContainerState {
+        match state.to_lowercase().as_str() {
+            "created" => ContainerState::Created,
+            "running" => ContainerState::Running,
+            "stopped" => ContainerState::Stopped,
+            "exited" => ContainerState::Exited,
+            "dead" | "killed" | "error" => ContainerState::Dead,
+            "paused" => ContainerState::Paused,
+            _ => ContainerState::Dead, // Default to dead for unknown states
+        }
+    }
+
+    /// Extract model name from container info (based on naming convention or annotations)
+    fn extract_model_name_from_container(&self, container: &ContainerInfo) -> Option<String> {
+        // Look for model name in annotations first
+        if let Some(model_name) = container.annotation.get("model") {
+            return Some(model_name.clone());
+        }
+
+        // Fallback: extract from container name pattern (e.g., "model-name-hash")
+        if let Some(first_name) = container.names.first() {
+            // Remove leading slash and extract model part
+            let clean_name = first_name.trim_start_matches('/');
+            if let Some(dash_pos) = clean_name.rfind('-') {
+                return Some(clean_name[..dash_pos].to_string());
+            }
+            return Some(clean_name.to_string());
+        }
+
+        None
+    }
+
+    /// Extract package name from model name (based on naming convention)
+    fn extract_package_name_from_model(&self, model_name: &str) -> Option<String> {
+        // Assuming model names follow pattern: "package-name_model-name" or similar
+        if let Some(underscore_pos) = model_name.find('_') {
+            return Some(model_name[..underscore_pos].to_string());
+        }
+
+        // Fallback: use model name as package name if no clear separator
+        Some(model_name.to_string())
+    }
+
+    /// Get model state from etcd
+    async fn get_model_state_from_etcd(&self, model_name: &str) -> Result<ModelState, String> {
+        let key = format!("/model/{}/state", model_name);
+        match common::etcd::get(&key).await {
+            Ok(value) => ModelState::from_str_name(&value)
+                .ok_or_else(|| format!("Invalid model state: {}", value)),
+            Err(_) => Ok(ModelState::Pending), // Default if not found
+        }
+    }
+
+    /// Get package state from etcd
+    async fn get_package_state_from_etcd(
+        &self,
+        package_name: &str,
+    ) -> Result<PackageState, String> {
+        let key = format!("/package/{}/state", package_name);
+        match common::etcd::get(&key).await {
+            Ok(value) => PackageState::from_str_name(&value)
+                .ok_or_else(|| format!("Invalid package state: {}", value)),
+            Err(_) => Ok(PackageState::Initializing), // Default if not found
+        }
+    }
+
+    /// Save model state to etcd using specified format
+    async fn save_model_state(&self, model_name: &str, state: ModelState) -> Result<(), String> {
+        let key = format!("/model/{}/state", model_name);
+        let value = state.as_str_name();
+        common::etcd::put(&key, value)
+            .await
+            .map_err(|e| format!("Failed to save model state: {:?}", e))
+    }
+
+    /// Save package state to etcd using specified format
+    async fn save_package_state(
+        &self,
+        package_name: &str,
+        state: PackageState,
+    ) -> Result<(), String> {
+        let key = format!("/package/{}/state", package_name);
+        let value = state.as_str_name();
+        common::etcd::put(&key, value)
+            .await
+            .map_err(|e| format!("Failed to save package state: {:?}", e))
+    }
+
+    /// Get all models belonging to a package from etcd
+    async fn get_package_models(&self, package_name: &str) -> Result<Vec<String>, String> {
+        // For now, derive from model state keys with the package prefix
+        let prefix = "/model/";
+        match common::etcd::get_all_with_prefix(prefix).await {
+            Ok(kvs) => {
+                let mut models = Vec::new();
+                for kv in kvs {
+                    if kv.key.ends_with("/state") {
+                        // Extract model name from key: /model/{model_name}/state
+                        if let Some(model_part) = kv.key.strip_prefix("/model/") {
+                            if let Some(model_name) = model_part.strip_suffix("/state") {
+                                // Check if this model belongs to the package
+                                if let Some(pkg) = self.extract_package_name_from_model(model_name)
+                                {
+                                    if pkg == package_name {
+                                        models.push(model_name.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(models)
+            }
+            Err(e) => Err(format!("Failed to get package models: {:?}", e)),
         }
     }
 }
