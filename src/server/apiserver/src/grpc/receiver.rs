@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use crate::node::NodeManager;
+use base64::Engine;
 use common::apiserver::api_server_connection_server::ApiServerConnection;
 use common::apiserver::{
     ClusterTopology, GetNodeRequest, GetNodeResponse, GetNodesRequest, GetNodesResponse,
@@ -13,8 +15,6 @@ use common::etcd;
 use common::nodeagent::{NodeRegistrationRequest, NodeRegistrationResponse, NodeStatus};
 use prost::Message;
 use tonic::{Request, Response, Status};
-use crate::node::NodeManager;
-use base64::Engine;
 
 /// Simple registry embedded in receiver
 #[derive(Clone)]
@@ -140,8 +140,11 @@ impl ApiServerConnection for ApiServerReceiver {
         println!("Received RegisterNode request");
         let req = request.into_inner();
 
-        println!("Registering node: {} ({}) with ID {}", req.hostname, req.ip_address, req.node_id);
-        
+        println!(
+            "Registering node: {} ({}) with ID {}",
+            req.hostname, req.ip_address, req.node_id
+        );
+
         // Note: We now use the node_id provided by the nodeagent
         // This should be in the format {node_name}-{node_ip}
         println!("Using provided node_id: {}", req.node_id);
@@ -166,24 +169,32 @@ impl ApiServerConnection for ApiServerReceiver {
                 let mut buf = Vec::new();
                 prost::Message::encode(&node_info, &mut buf).unwrap();
                 let encoded = base64::engine::general_purpose::STANDARD.encode(&buf);
-                
+
                 // 두 가지 키로 저장
                 // 1. IP 주소로 빠른 조회용 (기존 코드)
                 let _ = common::etcd::put(&format!("nodes/{}", req.ip_address), &encoded).await;
                 println!("Node info stored at IP key: nodes/{}", req.ip_address);
-                
+
                 // 2. 호스트 이름으로 빠른 조회용 (ActionController용)
-                let _ = common::etcd::put(&format!("nodes/{}", req.hostname), &req.ip_address).await;
+                let _ =
+                    common::etcd::put(&format!("nodes/{}", req.hostname), &req.ip_address).await;
                 println!("Node IP stored at hostname key: nodes/{}", req.hostname);
-                
+
                 // Immediately update the node status to Ready
-                if let Err(e) = self.node_manager.update_status(&req.node_id, NodeStatus::Ready).await {
+                if let Err(e) = self
+                    .node_manager
+                    .update_status(&req.node_id, NodeStatus::Ready)
+                    .await
+                {
                     println!("Warning: Failed to update node status to Ready: {}", e);
                 } else {
                     println!("Successfully updated node status to Ready");
                 }
 
-                println!("Node registration successful, cluster token: {}", cluster_token);
+                println!(
+                    "Node registration successful, cluster token: {}",
+                    cluster_token
+                );
                 Ok(Response::new(NodeRegistrationResponse {
                     success: true,
                     message: "Node registered successfully".to_string(),
@@ -230,7 +241,7 @@ impl ApiServerConnection for ApiServerReceiver {
         request: Request<UpdateTopologyRequest>,
     ) -> Result<Response<UpdateTopologyResponse>, Status> {
         let req = request.into_inner();
-        
+
         if let Some(topology) = req.topology {
             match self.registry.update_topology(topology).await {
                 Ok(updated_topology) => Ok(Response::new(UpdateTopologyResponse {
