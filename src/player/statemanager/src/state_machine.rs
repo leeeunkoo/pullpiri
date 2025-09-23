@@ -27,8 +27,10 @@
 //! ```
 
 use crate::types::{ActionCommand, HealthStatus, ResourceState, StateTransition, TransitionResult};
+use common::monitoringserver::{ContainerInfo, ContainerList};
 use common::statemanager::{
     ErrorCode, ModelState, PackageState, ResourceType, ScenarioState, StateChange,
+    StateChangeResponse,
 };
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -1201,6 +1203,424 @@ impl StateMachine {
             _ => 0,
         }
     }
+
+    // ========================================
+    // CONTAINER-MODEL-PACKAGE STATE MANAGEMENT
+    // ========================================
+
+    /// Process container list updates from NodeAgent per LLD Section 2
+    ///
+    /// Receives container status information and evaluates:
+    /// 1. Model state changes based on container aggregation
+    /// 2. Package state changes based on model aggregation  
+    /// 3. Stores results in ETCD with specified key format
+    /// 4. Triggers ActionController reconcile for error states
+    pub async fn process_container_updates(
+        &mut self,
+        container_list: ContainerList,
+    ) -> Result<Vec<StateChangeResponse>, Box<dyn std::error::Error + Send + Sync>> {
+        println!(
+            "Processing container list with {} containers from node: {}",
+            container_list.containers.len(),
+            container_list.node_name
+        );
+
+        // Extract containers from the list
+        let containers = container_list.containers;
+
+        // Evaluate model states based on container states
+        let updated_models = self.evaluate_model_states(&containers).await?;
+
+        // Evaluate package states based on updated models
+        let updated_packages = self.evaluate_package_states(&updated_models).await?;
+
+        // Collect all state change responses
+        let mut responses = Vec::new();
+
+        // Add model responses
+        for model_name in updated_models {
+            responses.push(StateChangeResponse {
+                message: format!(
+                    "Model {} state updated based on container states",
+                    model_name
+                ),
+                transition_id: format!(
+                    "model_{}_{}",
+                    model_name,
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                timestamp_ns: chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0),
+                error_code: ErrorCode::Success as i32,
+                error_details: String::new(),
+            });
+        }
+
+        // Add package responses
+        for package_name in updated_packages {
+            responses.push(StateChangeResponse {
+                message: format!(
+                    "Package {} state updated based on model states",
+                    package_name
+                ),
+                transition_id: format!(
+                    "package_{}_{}",
+                    package_name,
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                ),
+                timestamp_ns: chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0),
+                error_code: ErrorCode::Success as i32,
+                error_details: String::new(),
+            });
+        }
+
+        Ok(responses)
+    }
+
+    /// Evaluate model states based on container states per LLD Table 3.2
+    async fn evaluate_model_states(
+        &mut self,
+        containers: &[ContainerInfo],
+    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+        let mut updated_models = Vec::new();
+
+        // Group containers by model_name (from annotation or name parsing)
+        let mut model_containers: HashMap<String, Vec<&ContainerInfo>> = HashMap::new();
+
+        for container in containers {
+            // Try to get model name from annotations first, then parse from container name
+            let model_name = container
+                .annotation
+                .get("model_name")
+                .or_else(|| container.annotation.get("io.kubernetes.pod.name"))
+                .cloned()
+                .unwrap_or_else(|| {
+                    // Fallback: extract model name from container name
+                    container
+                        .names
+                        .first()
+                        .map(|name| name.trim_start_matches('/'))
+                        .unwrap_or("unknown")
+                        .to_string()
+                });
+
+            model_containers
+                .entry(model_name)
+                .or_default()
+                .push(container);
+        }
+
+        // Evaluate each model
+        for (model_name, model_container_list) in model_containers {
+            let container_states: Vec<ContainerState> = model_container_list
+                .iter()
+                .map(|c| self.parse_container_state(c))
+                .collect();
+
+            let new_model_state = self.determine_model_state(&container_states);
+
+            // Check if state changed
+            let current_state = self
+                .get_current_model_state(&model_name)
+                .await
+                .unwrap_or(ModelState::Unspecified);
+
+            if new_model_state != current_state {
+                println!(
+                    "Model {} state changed from {:?} to {:?}",
+                    model_name, current_state, new_model_state
+                );
+
+                // Store new state in ETCD
+                self.store_model_state(&model_name, new_model_state).await?;
+                updated_models.push(model_name);
+            }
+        }
+
+        Ok(updated_models)
+    }
+
+    /// Evaluate package states based on model states per LLD Table 3.1
+    async fn evaluate_package_states(
+        &mut self,
+        updated_models: &[String],
+    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+        let mut updated_packages = Vec::new();
+        let mut packages_to_check = std::collections::HashSet::new();
+
+        // Find packages that contain the updated models
+        for model_name in updated_models {
+            if let Ok(package_name) = self.get_package_for_model(model_name).await {
+                packages_to_check.insert(package_name);
+            }
+        }
+
+        // Evaluate each affected package
+        for package_name in packages_to_check {
+            let model_names = self.get_models_for_package(&package_name).await?;
+            let mut model_states = Vec::new();
+
+            for model_name in &model_names {
+                if let Ok(state) = self.get_current_model_state(model_name).await {
+                    model_states.push(state);
+                }
+            }
+
+            let new_package_state = self.determine_package_state(&model_states);
+            let current_state = self
+                .get_current_package_state(&package_name)
+                .await
+                .unwrap_or(PackageState::Unspecified);
+
+            if new_package_state != current_state {
+                println!(
+                    "Package {} state changed from {:?} to {:?}",
+                    package_name, current_state, new_package_state
+                );
+
+                // Store new state in ETCD
+                self.store_package_state(&package_name, new_package_state)
+                    .await?;
+
+                // If package goes to error state, send reconcile request
+                if new_package_state == PackageState::Error {
+                    self.send_reconcile_request(&package_name).await?;
+                }
+
+                updated_packages.push(package_name);
+            }
+        }
+
+        Ok(updated_packages)
+    }
+
+    /// Parse container state from ContainerInfo state map
+    fn parse_container_state(&self, container: &ContainerInfo) -> ContainerState {
+        let status = container
+            .state
+            .get("Status")
+            .map(|s| s.as_str())
+            .unwrap_or("");
+        let running = container
+            .state
+            .get("Running")
+            .map(|s| s == "true")
+            .unwrap_or(false);
+        let paused = container
+            .state
+            .get("Paused")
+            .map(|s| s == "true")
+            .unwrap_or(false);
+        let dead = container
+            .state
+            .get("Dead")
+            .map(|s| s == "true")
+            .unwrap_or(false);
+
+        // Map container state per LLD Table 3.3
+        if dead || status == "dead" {
+            ContainerState::Dead
+        } else if paused || status == "paused" {
+            ContainerState::Paused
+        } else if status == "exited" {
+            ContainerState::Exited
+        } else if running || status == "running" {
+            ContainerState::Running
+        } else if status == "created" {
+            ContainerState::Created
+        } else {
+            // Default to created if state is unclear
+            ContainerState::Created
+        }
+    }
+
+    /// Determine model state based on container states per LLD Table 3.2
+    fn determine_model_state(&self, containers: &[ContainerState]) -> ModelState {
+        if containers.is_empty() {
+            return ModelState::Unspecified;
+        }
+
+        // Check LLD conditions in priority order
+
+        // Dead: 하나 이상의 container가 dead 상태이거나, model 정보 조회 실패
+        if containers.contains(&ContainerState::Dead) {
+            return ModelState::Failed; // Map "Dead" to "Failed" in ModelState
+        }
+
+        // Paused: 모든 container가 paused 상태일 때
+        if containers
+            .iter()
+            .all(|&state| state == ContainerState::Paused)
+        {
+            return ModelState::Pending; // Map "Paused" to closest available state
+        }
+
+        // Exited: 모든 container가 exited 상태일 때
+        if containers
+            .iter()
+            .all(|&state| state == ContainerState::Exited)
+        {
+            return ModelState::Succeeded; // Map "Exited" to "Succeeded" for completed containers
+        }
+
+        // Running: 위 조건을 모두 만족하지 않을 때(기본 상태)
+        ModelState::Running
+    }
+
+    /// Determine package state based on model states per LLD Table 3.1  
+    fn determine_package_state(&self, models: &[ModelState]) -> PackageState {
+        if models.is_empty() {
+            return PackageState::Unspecified;
+        }
+
+        // Check LLD conditions in priority order
+
+        // error: 모든 model이 dead 상태일 때
+        if models.iter().all(|&state| state == ModelState::Failed) {
+            return PackageState::Error;
+        }
+
+        // degraded: 일부 model이 dead 상태일 때 (단 모든 model이 dead가 아닐 때)
+        if models.contains(&ModelState::Failed) {
+            return PackageState::Degraded;
+        }
+
+        // paused: 모든 model이 paused 상태일 때
+        if models.iter().all(|&state| state == ModelState::Pending) {
+            return PackageState::Paused;
+        }
+
+        // exited: 모든 model이 exited 상태일 때
+        if models.iter().all(|&state| state == ModelState::Succeeded) {
+            return PackageState::Updating; // Map to closest available state
+        }
+
+        // running: 위 조건을 모두 만족하지 않을 때(기본 상태)
+        PackageState::Running
+    }
+
+    /// Store model state in ETCD using LLD specified format
+    async fn store_model_state(
+        &self,
+        model_name: &str,
+        state: ModelState,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key = format!("/model/{}/state", model_name);
+        let value = state.as_str_name(); // 예: "Running"
+
+        match common::etcd::put(&key, value).await {
+            Ok(_) => {
+                println!("Stored model state: {} -> {}", key, value);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Failed to save model state {}: {:?}", key, e);
+                Err(e.into())
+            }
+        }
+    }
+
+    /// Store package state in ETCD using LLD specified format
+    async fn store_package_state(
+        &self,
+        package_name: &str,
+        state: PackageState,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key = format!("/package/{}/state", package_name);
+        let value = state.as_str_name(); // 예: "Running"
+
+        match common::etcd::put(&key, value).await {
+            Ok(_) => {
+                println!("Stored package state: {} -> {}", key, value);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Failed to save package state {}: {:?}", key, e);
+                Err(e.into())
+            }
+        }
+    }
+
+    /// Send reconcile request to ActionController for failed packages
+    async fn send_reconcile_request(
+        &self,
+        package_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Implementation will depend on ActionController gRPC interface
+        println!("Sending reconcile request for package: {}", package_name);
+        // TODO: Implement actual gRPC call to ActionController
+        // For now, just log the request
+        Ok(())
+    }
+
+    // Helper methods for ETCD operations
+    async fn get_current_model_state(
+        &self,
+        model_name: &str,
+    ) -> Result<ModelState, Box<dyn std::error::Error + Send + Sync>> {
+        let key = format!("/model/{}/state", model_name);
+        match common::etcd::get(&key).await {
+            Ok(value) => {
+                let state_str = format!("MODEL_STATE_{}", value.to_uppercase());
+                Ok(ModelState::from_str_name(&state_str).unwrap_or(ModelState::Unspecified))
+            }
+            Err(_) => Ok(ModelState::Unspecified),
+        }
+    }
+
+    async fn get_current_package_state(
+        &self,
+        package_name: &str,
+    ) -> Result<PackageState, Box<dyn std::error::Error + Send + Sync>> {
+        let key = format!("/package/{}/state", package_name);
+        match common::etcd::get(&key).await {
+            Ok(value) => {
+                let state_str = format!("PACKAGE_STATE_{}", value.to_uppercase());
+                Ok(PackageState::from_str_name(&state_str).unwrap_or(PackageState::Unspecified))
+            }
+            Err(_) => Ok(PackageState::Unspecified),
+        }
+    }
+
+    async fn get_models_for_package(
+        &self,
+        package_name: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+        // This would need to be implemented based on how package-model relationships are stored
+        // For now, using a placeholder implementation
+        let prefix = format!("/package/{}/models/", package_name);
+        match common::etcd::get_all_with_prefix(&prefix).await {
+            Ok(kvs) => Ok(kvs
+                .into_iter()
+                .map(|kv| kv.key.split('/').next_back().unwrap_or("").to_string())
+                .filter(|s| !s.is_empty())
+                .collect()),
+            Err(_) => Ok(Vec::new()),
+        }
+    }
+
+    async fn get_package_for_model(
+        &self,
+        model_name: &str,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        // This would need to be implemented based on how model-package relationships are stored
+        // For now, using a placeholder implementation
+        let key = format!("/model/{}/package", model_name);
+        match common::etcd::get(&key).await {
+            Ok(package_name) => Ok(package_name),
+            Err(_) => Ok(format!("package-for-{}", model_name)), // Fallback naming convention
+        }
+    }
+}
+
+/// Container states as defined in LLD Table 3.3
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ContainerState {
+    Created, // 컨테이너가 생성되지 않았거나 모두 삭제된 경우
+    Running, // 하나 이상의 컨테이너가 실행 중
+    Stopped, // 하나 이상의 컨테이너가 중지, 실행 중인 컨테이너는 없음
+    Exited,  // 모든 컨테이너가 종료됨
+    Paused,  // 컨테이너가 일시 정지됨
+    Dead,    // 상태 정보 조회 실패, 시스템 오류 등
 }
 
 /// Default implementation that creates a new StateMachine
