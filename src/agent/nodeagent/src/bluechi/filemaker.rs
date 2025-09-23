@@ -43,18 +43,18 @@ pub async fn make_symlink(node_name: &str, model_name: &str) -> common::Result<(
         crate::config::Config::get().get_yaml_storage(),
         model_name
     );
-    
+
     // Make sure original file exists
     if !std::path::Path::new(&original).exists() {
         return Err(format!("Original file '{}' does not exist", original).into());
     }
-    
+
     // Make sure SYSTEMD_PATH exists
     if !std::path::Path::new(SYSTEMD_PATH).exists() {
         println!("Creating directory: {}", SYSTEMD_PATH);
         std::fs::create_dir_all(SYSTEMD_PATH)?;
     }
-    
+
     let link = format!("{}{}.kube", SYSTEMD_PATH, model_name);
 
     // Remove existing symlink if it exists

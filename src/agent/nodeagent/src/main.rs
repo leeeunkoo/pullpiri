@@ -3,9 +3,9 @@
 //! This file sets up the asynchronous runtime, initializes the manager and gRPC server,
 //! and launches both concurrently. It also provides unit tests for initialization.
 
+use clap::Parser;
 use common::nodeagent::HandleYamlRequest;
 use common::nodeagent::NodeRegistrationRequest;
-use clap::Parser;
 use std::path::PathBuf;
 mod bluechi;
 pub mod config;
@@ -46,15 +46,15 @@ async fn launch_manager(
                 metadata: std::collections::HashMap::new(),
                 resources: None,
                 node_type: match config.nodeagent.node_type.as_str() {
-                    "cloud" => 1, // NodeType::Cloud as i32
+                    "cloud" => 1,   // NodeType::Cloud as i32
                     "vehicle" => 2, // NodeType::Vehicle as i32
-                    _ => 0, // NodeType::Unspecified as i32
+                    _ => 0,         // NodeType::Unspecified as i32
                 },
                 node_role: match config.nodeagent.node_role.as_str() {
-                    "master" => 1, // NodeRole::Master as i32
+                    "master" => 1,    // NodeRole::Master as i32
                     "nodeagent" => 2, // NodeRole::Nodeagent as i32
-                    "bluechi" => 3, // NodeRole::Bluechi as i32
-                    _ => 0, // NodeRole::Unspecified as i32
+                    "bluechi" => 3,   // NodeRole::Bluechi as i32
+                    _ => 0,           // NodeRole::Unspecified as i32
                 },
             };
 
@@ -128,7 +128,10 @@ async fn initialize(tx_grpc: Sender<HandleYamlRequest>, hostname: String, config
         .parse()
         .expect("nodeagent address parsing error");
     println!("NodeAgent listening on {}", addr);
-    println!("NodeAgent config - master_ip: {}, grpc_port: {}", config.nodeagent.master_ip, config.nodeagent.grpc_port);
+    println!(
+        "NodeAgent config - master_ip: {}, grpc_port: {}",
+        config.nodeagent.master_ip, config.nodeagent.grpc_port
+    );
 
     let _ = Server::builder()
         .add_service(NodeAgentConnectionServer::new(server))

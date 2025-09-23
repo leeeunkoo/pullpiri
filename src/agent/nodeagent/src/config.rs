@@ -1,11 +1,10 @@
+use if_addrs::{get_if_addrs, Interface};
 use serde::Deserialize;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
-use if_addrs::{Interface, get_if_addrs};
 use thiserror::Error;
-
 
 // Global config instance
 static NODEAGENT_CONFIG: OnceLock<Config> = OnceLock::new();
@@ -90,7 +89,7 @@ impl Config {
         if !self.nodeagent.node_ip.is_empty() {
             return self.nodeagent.node_ip.clone();
         }
-        
+
         // Otherwise try to get the first non-loopback IPv4 address
         if let Ok(interfaces) = get_network_interfaces() {
             for iface in interfaces {
@@ -101,7 +100,7 @@ impl Config {
                 }
             }
         }
-        
+
         // Fallback to master_ip if we couldn't determine the host IP
         self.nodeagent.master_ip.clone()
     }

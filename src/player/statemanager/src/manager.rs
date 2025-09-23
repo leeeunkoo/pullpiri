@@ -420,72 +420,63 @@ impl StateManagerManager {
     ///
     /// This method handles container status updates from nodeagent and
     /// triggers appropriate state transitions based on container health.
+    /// 
+    /// Implements the requirements from StateManager_Model.md:
+    /// - Processes container states to determine model states
+    /// - Triggers cascading package state updates
+    /// - Stores states in ETCD using specified formats
     ///
     /// # Arguments
     /// * `container_list` - ContainerList message with node and container status
     ///
     /// # Processing Steps
     /// 1. Analyze container health and status changes
-    /// 2. Identify resources affected by container changes
-    /// 3. Trigger state transitions for failed or recovered containers
-    /// 4. Update resource health status and monitoring data
+    /// 2. Group containers by model and determine model states
+    /// 3. Update model states in ETCD
+    /// 4. Trigger cascading package state evaluation
+    /// 5. Update resource health status and monitoring data
     async fn process_container_list(&self, container_list: ContainerList) {
-        println!("=== PROCESSING CONTAINER LIST ===");
+        println!("=== PROCESSING CONTAINER LIST FOR STATE MANAGEMENT ===");
         println!("  Node Name: {}", container_list.node_name);
         println!("  Container Count: {}", container_list.containers.len());
 
-        // Process each container for health status analysis
+        // Log container details for debugging
         for (i, container) in container_list.containers.iter().enumerate() {
-            // container.names is a Vec<String>, so join them for display
             let container_names = container.names.join(", ");
             println!("  Container {}: {}", i + 1, container_names);
             println!("    Image: {}", container.image);
-            println!("    State: {:?}", container.state);
-            println!("    ID: {}", container.id);
-
-            // container.config is a HashMap, not an Option
-            if !container.config.is_empty() {
-                println!("    Config: {:?}", container.config);
+            println!("    ID: {}", &container.id[..8]); // Show first 8 chars of ID
+            
+            // Log state information
+            if let Some(status) = container.state.get("status") {
+                println!("    Status: {}", status);
             }
-
-            // Process container annotations if available
-            if !container.annotation.is_empty() {
-                println!("    Annotations: {:?}", container.annotation);
+            
+            // Log model association from annotations
+            if let Some(model) = container.annotation.get("model") {
+                println!("    Model: {}", model);
+            } else if let Some(pod) = container.annotation.get("pod") {
+                println!("    Pod/Model: {}", pod);
             }
-
-            // TODO: Implement comprehensive container processing:
-            //
-            // 1. HEALTH STATUS ANALYSIS
-            //    - Analyze container state changes (running -> failed, etc.)
-            //    - Check exit codes for failure conditions
-            //    - Monitor resource usage and performance metrics
-            //    - Detect container restart loops and crash patterns
-            //
-            // 2. RESOURCE MAPPING
-            //    - Map containers to managed resources (scenarios, packages, models)
-            //    - Identify which resources are affected by container changes
-            //    - Determine impact on dependent resources
-            //
-            // 3. STATE TRANSITION TRIGGERS
-            //    - Trigger state transitions for failed containers
-            //    - Handle container recovery and restart scenarios
-            //    - Update resource states based on container health
-            //    - Escalate to recovery management for critical failures
-            //
-            // 4. HEALTH STATUS UPDATES
-            //    - Update resource health status based on container state
-            //    - Generate health check events and notifications
-            //    - Update monitoring and observability data
-            //    - Maintain health history for trend analysis
-            //
-            // 5. ASIL COMPLIANCE MONITORING
-            //    - Monitor ASIL-critical containers for safety violations
-            //    - Generate alerts for safety-critical container failures
-            //    - Implement timing constraints for container recovery
-            //    - Ensure safety systems remain operational
         }
 
-        println!("  Status: Container list processing completed (implementation pending)");
+        // ========================================
+        // CORE STATE MANAGEMENT PROCESSING
+        // ========================================
+        // This implements the StateManager_Model.md requirements:
+        // 1. Process container states and determine model states
+        // 2. Store model states in ETCD with proper format
+        // 3. Trigger cascading package state updates
+
+        // Acquire lock on state machine for container processing
+        {
+            let mut state_machine = self.state_machine.lock().await;
+            
+            // Process container states and trigger model state updates
+            state_machine.process_container_states(&container_list.node_name, &container_list.containers).await;
+        } // Release state machine lock
+
+        println!("  Status: Container list processing completed with state management");
         println!("=====================================");
     }
 

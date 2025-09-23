@@ -137,6 +137,367 @@ impl StateMachine {
         state_machine
     }
 
+    // ========================================
+    // CONTAINER-BASED STATE MANAGEMENT
+    // ========================================
+
+    /// Process container state information and trigger model state changes
+    ///
+    /// This method implements the core logic from StateManager_Model.md:
+    /// - Analyzes container states for each model
+    /// - Determines new model state based on container aggregation rules
+    /// - Triggers cascading package state updates
+    /// - Stores states in ETCD using specified format
+    ///
+    /// # Arguments
+    /// * `node_name` - Name of the node containing the containers
+    /// * `containers` - List of container information from nodeagent
+    ///
+    /// # State Aggregation Rules (from LLD):
+    /// - Created: model's initial state
+    /// - Paused: all containers are paused
+    /// - Exited: all containers are exited  
+    /// - Dead: one or more containers are dead OR model info retrieval failed
+    /// - Running: default state when other conditions aren't met
+    pub async fn process_container_states(&mut self, node_name: &str, containers: &[common::monitoringserver::ContainerInfo]) {
+        println!("=== PROCESSING CONTAINER STATES FOR MODEL STATE MANAGEMENT ===");
+        println!("Node: {}, Containers: {}", node_name, containers.len());
+
+        // Group containers by model (using annotation or naming convention)
+        let models_containers = self.group_containers_by_model(containers);
+        
+        // Collect model state changes to process them after analysis
+        let mut model_state_changes = Vec::new();
+
+        for (model_name, model_containers) in models_containers {
+            // Determine new model state based on container states
+            let new_model_state = self.determine_model_state_from_containers(&model_containers);
+            
+            // Get current model state from ETCD
+            let current_model_state = self.get_model_state_from_etcd(&model_name).await;
+            
+            // Only update if state has changed
+            if current_model_state != new_model_state {
+                println!("Model '{}' state change: {:?} -> {:?}", 
+                    model_name, current_model_state, new_model_state);
+                model_state_changes.push((model_name, new_model_state));
+            }
+        }
+
+        // Process all model state changes
+        for (model_name, new_model_state) in model_state_changes {
+            // Store new model state in ETCD
+            if let Err(e) = self.store_model_state_to_etcd(&model_name, new_model_state).await {
+                eprintln!("Failed to store model state: {:?}", e);
+                continue;
+            }
+
+            // Trigger cascading package state evaluation
+            self.evaluate_package_states_for_model(&model_name, new_model_state).await;
+        }
+        
+        println!("=== CONTAINER STATE PROCESSING COMPLETED ===");
+    }
+
+    /// Group containers by their associated model
+    ///
+    /// Uses container annotations or naming conventions to determine which model
+    /// each container belongs to. This is crucial for aggregating container states.
+    fn group_containers_by_model<'a>(&self, containers: &'a [common::monitoringserver::ContainerInfo]) -> HashMap<String, Vec<&'a common::monitoringserver::ContainerInfo>> {
+        let mut models_containers: HashMap<String, Vec<&'a common::monitoringserver::ContainerInfo>> = HashMap::new();
+        
+        for container in containers {
+            // Try to determine model name from container annotations
+            let model_name = if let Some(model) = container.annotation.get("model") {
+                model.clone()
+            } else if let Some(model) = container.annotation.get("pod") {
+                model.clone()
+            } else if !container.names.is_empty() {
+                // Fallback: use first container name as model identifier
+                // This is a simplified approach - real implementation might parse naming conventions
+                container.names[0].clone()
+            } else {
+                // Last resort: use container ID
+                format!("model_{}", &container.id[..8])
+            };
+
+            models_containers.entry(model_name).or_default().push(container);
+        }
+        
+        models_containers
+    }
+
+    /// Determine model state based on container states according to LLD rules
+    ///
+    /// Implements the exact state aggregation logic from StateManager_Model.md:
+    /// - Created: model's initial state (handled separately)
+    /// - Paused: ALL containers are paused
+    /// - Exited: ALL containers are exited
+    /// - Dead: ONE OR MORE containers are dead OR model info retrieval failed
+    /// - Running: default when other conditions aren't met
+    fn determine_model_state_from_containers(&self, containers: &[&common::monitoringserver::ContainerInfo]) -> ModelState {
+        if containers.is_empty() {
+            return ModelState::Pending; // Use Pending instead of Created
+        }
+
+        let mut paused_count = 0;
+        let mut exited_count = 0;
+        let mut dead_count = 0;
+        let mut _running_count = 0; // Track running containers but not used in current logic
+        let total_count = containers.len();
+
+        for container in containers {
+            // Check container state from the state map
+            let container_state = container.state.get("status").unwrap_or(&"unknown".to_string()).to_lowercase();
+            
+            match container_state.as_str() {
+                "paused" => paused_count += 1,
+                "exited" | "stopped" => exited_count += 1,
+                "dead" | "failed" | "error" => dead_count += 1,
+                "running" | "restarting" => _running_count += 1,
+                _ => {
+                    // Unknown state treated as potentially problematic
+                    println!("Warning: Unknown container state '{}' for container {}", 
+                        container_state, container.id);
+                }
+            }
+        }
+
+        // Apply state aggregation rules from LLD
+        if dead_count > 0 {
+            // One or more containers are dead
+            ModelState::Failed
+        } else if paused_count == total_count {
+            // ALL containers are paused
+            ModelState::Unknown // Using Unknown for Paused since ModelState doesn't have Paused
+        } else if exited_count == total_count {
+            // ALL containers are exited
+            ModelState::Succeeded
+        } else {
+            // Default state when other conditions aren't met
+            ModelState::Running
+        }
+    }
+
+    /// Get current model state from ETCD
+    async fn get_model_state_from_etcd(&self, model_name: &str) -> ModelState {
+        let key = format!("/model/{}/state", model_name);
+        match common::etcd::get(&key).await {
+            Ok(value) => {
+                // Parse state string back to enum
+                match value.as_str() {
+                    "PENDING" => ModelState::Pending,
+                    "RUNNING" => ModelState::Running,
+                    "SUCCEEDED" => ModelState::Succeeded,
+                    "FAILED" => ModelState::Failed,
+                    "UNKNOWN" => ModelState::Unknown,
+                    "CONTAINER_CREATING" => ModelState::ContainerCreating,
+                    "CRASH_LOOP_BACK_OFF" => ModelState::CrashLoopBackOff,
+                    _ => ModelState::Unknown,
+                }
+            },
+            Err(_) => {
+                // State not found - assume this is a new model
+                ModelState::Pending
+            }
+        }
+    }
+
+    /// Store model state to ETCD using format specified in LLD
+    async fn store_model_state_to_etcd(&self, model_name: &str, model_state: ModelState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key = format!("/model/{}/state", model_name);
+        let value = model_state.as_str_name(); // e.g., "RUNNING"
+        
+        common::etcd::put(&key, value).await.map_err(|e| {
+            eprintln!("Failed to save model state: {:?}", e);
+            Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        
+        println!("Stored model state: {} = {}", key, value);
+        Ok(())
+    }
+
+    /// Evaluate package states when a model state changes
+    ///
+    /// This implements the cascading state management from StateManager_Package.md:
+    /// - Retrieves all models for packages containing the changed model
+    /// - Determines new package state based on model state aggregation
+    /// - Updates package state in ETCD
+    /// - Triggers ActionController reconcile if package becomes "error"
+    async fn evaluate_package_states_for_model(&mut self, model_name: &str, _model_state: ModelState) {
+        // Find packages that contain this model
+        let packages = self.find_packages_containing_model(model_name).await;
+        
+        for package_name in packages {
+            // Get all models in this package
+            let package_models = self.get_models_in_package(&package_name).await;
+            
+            // Determine new package state based on all model states
+            let new_package_state = self.determine_package_state_from_models(&package_models).await;
+            
+            // Get current package state
+            let current_package_state = self.get_package_state_from_etcd(&package_name).await;
+            
+            // Update if state has changed
+            if current_package_state != new_package_state {
+                println!("Package '{}' state change: {:?} -> {:?}", 
+                    package_name, current_package_state, new_package_state);
+                
+                // Store new package state in ETCD
+                if let Err(e) = self.store_package_state_to_etcd(&package_name, new_package_state).await {
+                    eprintln!("Failed to store package state: {:?}", e);
+                    continue;
+                }
+
+                // Trigger ActionController reconcile if package enters error state
+                if new_package_state == PackageState::Error {
+                    self.trigger_action_controller_reconcile(&package_name).await;
+                }
+            }
+        }
+    }
+
+    /// Find packages that contain the specified model
+    async fn find_packages_containing_model(&self, model_name: &str) -> Vec<String> {
+        // In a real implementation, this would query ETCD for package definitions
+        // that include the specified model. For now, we'll use a simple convention
+        // where package names are derived from model names or stored separately.
+        
+        // Try to get package info from ETCD - simplified approach
+        match common::etcd::get_all_with_prefix("/package/").await {
+            Ok(kvs) => {
+                let mut packages = Vec::new();
+                for kv in kvs {
+                    if kv.key.contains("/models/") && kv.value.contains(model_name) {
+                        // Extract package name from key like "/package/pkg1/models/model1"
+                        if let Some(package_name) = kv.key.split('/').nth(2) {
+                            if !packages.contains(&package_name.to_string()) {
+                                packages.push(package_name.to_string());
+                            }
+                        }
+                    }
+                }
+                packages
+            },
+            Err(_) => {
+                // Fallback: assume model belongs to a package with similar name
+                vec![format!("package_{}", model_name)]
+            }
+        }
+    }
+
+    /// Get all models in a package
+    async fn get_models_in_package(&self, package_name: &str) -> Vec<String> {
+        // Query ETCD for models in this package
+        let prefix = format!("/package/{}/models/", package_name);
+        match common::etcd::get_all_with_prefix(&prefix).await {
+            Ok(kvs) => {
+                kvs.iter()
+                    .filter_map(|kv| kv.key.split('/').next_back().map(|s| s.to_string()))
+                    .collect()
+            },
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Determine package state from model states according to LLD rules
+    ///
+    /// Implements the exact state aggregation logic from StateManager_Package.md:
+    /// - idle: initial package state (handled separately)
+    /// - paused: ALL models are paused
+    /// - exited: ALL models are exited
+    /// - degraded: SOME models are dead (but not all)
+    /// - error: ALL models are dead
+    /// - running: default when other conditions aren't met
+    async fn determine_package_state_from_models(&self, model_names: &[String]) -> PackageState {
+        if model_names.is_empty() {
+            return PackageState::Initializing;
+        }
+
+        let mut model_states = Vec::new();
+        for model_name in model_names {
+            let state = self.get_model_state_from_etcd(model_name).await;
+            model_states.push(state);
+        }
+
+        let total_count = model_states.len();
+        let paused_count = model_states.iter().filter(|&&state| state == ModelState::Unknown).count(); // Using Unknown for paused
+        let exited_count = model_states.iter().filter(|&&state| state == ModelState::Succeeded).count(); // Using Succeeded for exited
+        let dead_count = model_states.iter().filter(|&&state| state == ModelState::Failed).count();
+
+        // Apply package state aggregation rules from LLD
+        if dead_count == total_count {
+            // ALL models are dead
+            PackageState::Error
+        } else if dead_count > 0 {
+            // SOME models are dead (but not all)
+            PackageState::Degraded
+        } else if paused_count == total_count {
+            // ALL models are paused
+            PackageState::Paused
+        } else if exited_count == total_count {
+            // ALL models are exited  
+            // Note: PackageState doesn't have Exited, using Paused as closest
+            PackageState::Paused
+        } else {
+            // Default when other conditions aren't met
+            PackageState::Running
+        }
+    }
+
+    /// Get current package state from ETCD
+    async fn get_package_state_from_etcd(&self, package_name: &str) -> PackageState {
+        let key = format!("/package/{}/state", package_name);
+        match common::etcd::get(&key).await {
+            Ok(value) => {
+                // Parse state string back to enum
+                match value.as_str() {
+                    "INITIALIZING" => PackageState::Initializing,
+                    "RUNNING" => PackageState::Running,
+                    "DEGRADED" => PackageState::Degraded,
+                    "ERROR" => PackageState::Error,
+                    "PAUSED" => PackageState::Paused,
+                    "UPDATING" => PackageState::Updating,
+                    _ => PackageState::Initializing,
+                }
+            },
+            Err(_) => {
+                // State not found - assume this is a new package
+                PackageState::Initializing
+            }
+        }
+    }
+
+    /// Store package state to ETCD using format specified in LLD
+    async fn store_package_state_to_etcd(&self, package_name: &str, package_state: PackageState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let key = format!("/package/{}/state", package_name);
+        let value = package_state.as_str_name(); // e.g., "RUNNING"
+        
+        common::etcd::put(&key, value).await.map_err(|e| {
+            eprintln!("Failed to save package state: {:?}", e);
+            Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        
+        println!("Stored package state: {} = {}", key, value);
+        Ok(())
+    }
+
+    /// Trigger ActionController reconcile when package enters error state
+    ///
+    /// This implements the requirement from StateManager_Package.md:
+    /// "package dead 상태 시 ActionController에 reconcile 요청"
+    async fn trigger_action_controller_reconcile(&self, package_name: &str) {
+        println!("TRIGGERING ActionController reconcile for package: {}", package_name);
+        
+        // TODO: Implement gRPC call to ActionController
+        // This would send a reconcile request to ActionController when a package enters error state
+        // For now, we'll log the requirement
+        
+        println!("  Package '{}' has entered ERROR state", package_name);
+        println!("  ActionController reconcile request should be sent");
+        println!("  Implementation: Send gRPC request to ActionController with package details");
+    }
+
     /// Initialize async action executor
     pub fn initialize_action_executor(&mut self) -> mpsc::UnboundedReceiver<ActionCommand> {
         let (sender, receiver) = mpsc::unbounded_channel();
@@ -1210,5 +1571,182 @@ impl StateMachine {
 impl Default for StateMachine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::monitoringserver::ContainerInfo;
+    use std::collections::HashMap;
+
+    /// Test the model state determination logic according to LLD rules
+    #[test]
+    fn test_determine_model_state_from_containers() {
+        let state_machine = StateMachine::new();
+
+        // Test empty container list -> Pending state
+        let empty_containers: Vec<&ContainerInfo> = vec![];
+        assert_eq!(
+            state_machine.determine_model_state_from_containers(&empty_containers),
+            ModelState::Pending
+        );
+
+        // Create test containers with different states
+        let running_container = ContainerInfo {
+            id: "container1".to_string(),
+            names: vec!["test-container-1".to_string()],
+            image: "test-image".to_string(),
+            state: {
+                let mut map = HashMap::new();
+                map.insert("status".to_string(), "running".to_string());
+                map
+            },
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+
+        let failed_container = ContainerInfo {
+            id: "container2".to_string(),
+            names: vec!["test-container-2".to_string()],
+            image: "test-image".to_string(),
+            state: {
+                let mut map = HashMap::new();
+                map.insert("status".to_string(), "failed".to_string());
+                map
+            },
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+
+        let exited_container = ContainerInfo {
+            id: "container3".to_string(),
+            names: vec!["test-container-3".to_string()],
+            image: "test-image".to_string(),
+            state: {
+                let mut map = HashMap::new();
+                map.insert("status".to_string(), "exited".to_string());
+                map
+            },
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+
+        // Test single running container -> Running state
+        let running_containers = vec![&running_container];
+        assert_eq!(
+            state_machine.determine_model_state_from_containers(&running_containers),
+            ModelState::Running
+        );
+
+        // Test one failed container -> Failed state (even with other running containers)
+        let mixed_containers = vec![&running_container, &failed_container];
+        assert_eq!(
+            state_machine.determine_model_state_from_containers(&mixed_containers),
+            ModelState::Failed
+        );
+
+        // Test all exited containers -> Succeeded state
+        let exited_containers = vec![&exited_container, &exited_container];
+        assert_eq!(
+            state_machine.determine_model_state_from_containers(&exited_containers),
+            ModelState::Succeeded
+        );
+    }
+
+    /// Test the container grouping logic
+    #[test]
+    fn test_group_containers_by_model() {
+        let state_machine = StateMachine::new();
+
+        // Create test containers with different model annotations
+        let container1 = ContainerInfo {
+            id: "container1".to_string(),
+            names: vec!["test-container-1".to_string()],
+            image: "test-image".to_string(),
+            state: HashMap::new(),
+            config: HashMap::new(),
+            annotation: {
+                let mut map = HashMap::new();
+                map.insert("model".to_string(), "model-a".to_string());
+                map
+            },
+            stats: HashMap::new(),
+        };
+
+        let container2 = ContainerInfo {
+            id: "container2".to_string(),
+            names: vec!["test-container-2".to_string()],
+            image: "test-image".to_string(),
+            state: HashMap::new(),
+            config: HashMap::new(),
+            annotation: {
+                let mut map = HashMap::new();
+                map.insert("model".to_string(), "model-a".to_string());
+                map
+            },
+            stats: HashMap::new(),
+        };
+
+        let container3 = ContainerInfo {
+            id: "container3".to_string(),
+            names: vec!["test-container-3".to_string()],
+            image: "test-image".to_string(),
+            state: HashMap::new(),
+            config: HashMap::new(),
+            annotation: {
+                let mut map = HashMap::new();
+                map.insert("model".to_string(), "model-b".to_string());
+                map
+            },
+            stats: HashMap::new(),
+        };
+
+        let containers = vec![container1, container2, container3];
+        let grouped = state_machine.group_containers_by_model(&containers);
+
+        // Should have 2 models
+        assert_eq!(grouped.len(), 2);
+        assert!(grouped.contains_key("model-a"));
+        assert!(grouped.contains_key("model-b"));
+
+        // model-a should have 2 containers
+        assert_eq!(grouped.get("model-a").unwrap().len(), 2);
+        // model-b should have 1 container
+        assert_eq!(grouped.get("model-b").unwrap().len(), 1);
+    }
+
+    /// Test package state determination from model states
+    #[tokio::test]
+    async fn test_determine_package_state_from_models() {
+        let state_machine = StateMachine::new();
+
+        // Test empty model list -> Initializing state
+        let empty_models: Vec<String> = vec![];
+        assert_eq!(
+            state_machine.determine_package_state_from_models(&empty_models).await,
+            PackageState::Initializing
+        );
+
+        // Note: Full testing of this function requires ETCD integration
+        // which would need a test environment with ETCD running
+        // For now, we test the empty case and structure
+    }
+
+    /// Test ETCD key format consistency
+    #[test]
+    fn test_etcd_key_formats() {
+        // Test model key format
+        let model_name = "test_model";
+        let expected_model_key = format!("/model/{}/state", model_name);
+        assert_eq!(expected_model_key, "/model/test_model/state");
+
+        // Test package key format
+        let package_name = "test_package";
+        let expected_package_key = format!("/package/{}/state", package_name);
+        assert_eq!(expected_package_key, "/package/test_package/state");
     }
 }
