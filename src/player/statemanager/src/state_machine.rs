@@ -489,13 +489,44 @@ impl StateMachine {
     async fn trigger_action_controller_reconcile(&self, package_name: &str) {
         println!("TRIGGERING ActionController reconcile for package: {}", package_name);
         
-        // TODO: Implement gRPC call to ActionController
-        // This would send a reconcile request to ActionController when a package enters error state
-        // For now, we'll log the requirement
-        
-        println!("  Package '{}' has entered ERROR state", package_name);
-        println!("  ActionController reconcile request should be sent");
-        println!("  Implementation: Send gRPC request to ActionController with package details");
+        // Create reconcile request for ActionController
+        let reconcile_request = common::actioncontroller::ReconcileRequest {
+            scenario_name: package_name.to_string(), // Using package name as scenario name
+            current: common::actioncontroller::PodStatus::Failed as i32, // Package is in error state
+            desired: common::actioncontroller::PodStatus::Running as i32, // Desired state is running
+        };
+
+        // Send reconcile request to ActionController
+        match common::actioncontroller::action_controller_connection_client::ActionControllerConnectionClient::connect(
+            common::actioncontroller::connect_server()
+        ).await {
+            Ok(mut client) => {
+                println!("  Connected to ActionController successfully");
+                
+                match client.reconcile(tonic::Request::new(reconcile_request)).await {
+                    Ok(response) => {
+                        let resp = response.into_inner();
+                        println!("  ActionController reconcile response:");
+                        println!("    Status: {}", resp.status);
+                        println!("    Description: {}", resp.desc);
+                        
+                        if resp.status == 0 {
+                            println!("  ✓ Reconcile request successful");
+                        } else {
+                            println!("  ✗ Reconcile request failed with status: {}", resp.status);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("  ✗ Failed to send reconcile request: {:?}", e);
+                    }
+                }
+            },
+            Err(e) => {
+                eprintln!("  ✗ Failed to connect to ActionController: {:?}", e);
+                eprintln!("  Make sure ActionController service is running at: {}", 
+                    common::actioncontroller::connect_server());
+            }
+        }
     }
 
     /// Initialize async action executor
@@ -1748,5 +1779,23 @@ mod tests {
         let package_name = "test_package";
         let expected_package_key = format!("/package/{}/state", package_name);
         assert_eq!(expected_package_key, "/package/test_package/state");
+    }
+
+    /// Test ActionController reconcile request creation
+    #[test]
+    fn test_action_controller_reconcile_request() {
+        use common::actioncontroller::{ReconcileRequest, PodStatus};
+        
+        // Test that we can create a proper reconcile request
+        let package_name = "test_package";
+        let reconcile_request = ReconcileRequest {
+            scenario_name: package_name.to_string(),
+            current: PodStatus::Failed as i32,
+            desired: PodStatus::Running as i32,
+        };
+
+        assert_eq!(reconcile_request.scenario_name, "test_package");
+        assert_eq!(reconcile_request.current, PodStatus::Failed as i32);
+        assert_eq!(reconcile_request.desired, PodStatus::Running as i32);
     }
 }
