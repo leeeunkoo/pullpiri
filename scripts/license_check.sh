@@ -11,6 +11,7 @@ echo "🔍 Starting license checks..." | tee -a "$LOG_FILE"
 
 MANIFESTS=(
     "src/Cargo.toml"
+    "src/agent/nodeagent/Cargo.toml"
     "src/server/rocksdbservice/Cargo.toml"
     "src/tools/Cargo.toml"
 )

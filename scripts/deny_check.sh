@@ -21,6 +21,7 @@ PASSED_TOTAL=0   # Count of manifests that passed deny check
 
 # Define paths to Cargo.toml manifests to check
 MAJOR_MANIFEST="src/Cargo.toml"
+NODEAGENT_MANIFEST="src/agent/nodeagent/Cargo.toml"
 ROCKSDBSERVICE_MANIFEST="src/server/rocksdbservice/Cargo.toml"
 TOOLS_MANIFEST="src/tools/Cargo.toml"
 
@@ -57,6 +58,7 @@ run_deny() {
 # Uncomment manifests as needed
 
 [[ -f "$MAJOR_MANIFEST" ]]          && run_deny "$MAJOR_MANIFEST" "major" || echo "::warning ::$MAJOR_MANIFEST not found, skipping..."
+[[ -f "$NODEAGENT_MANIFEST" ]]      && run_deny "$NODEAGENT_MANIFEST" "nodeagent" || echo "::warning ::$NODEAGENT_MANIFEST not found, skipping..."
 [[ -f "$ROCKSDBSERVICE_MANIFEST" ]] && run_deny "$ROCKSDBSERVICE_MANIFEST" "rocksdbservice" || echo "::warning ::$ROCKSDBSERVICE_MANIFEST not found, skipping..."
 [[ -f "$TOOLS_MANIFEST" ]]          && run_deny "$TOOLS_MANIFEST" "tools" || echo "::warning ::$TOOLS_MANIFEST not found, skipping..."
 

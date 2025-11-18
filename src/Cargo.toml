@@ -6,7 +6,7 @@
 resolver = "2"
 
 members = [
-    "agent/nodeagent",
+#    "agent/nodeagent",
     "player/actioncontroller",
     "player/filtergateway",
     "player/statemanager",
@@ -17,7 +17,8 @@ members = [
 #   "server/rocksdbservice",
 ]
 exclude = [
-    "server/rocksdbservice"
+    "server/rocksdbservice",
+    "agent/nodeagent",
 ]
 
 [workspace.dependencies]

@@ -12,6 +12,7 @@ release:
 .PHONY: clean
 clean:
 	cargo clean --manifest-path=src/Cargo.toml
+	cargo clean --manifest-path=src/agent/nodeagent/Cargo.toml
 	cargo clean --manifest-path=src/server/rocksdbservice/Cargo.toml
 	cargo clean --manifest-path=src/tools/Cargo.toml
 
@@ -22,6 +23,13 @@ image:
 .PHONY: rocksdb-image
 rocksdb-image:
 	podman build -t localhost/pullpiri-rocksdb:latest -f src/server/rocksdbservice/Dockerfile .
+
+.PHONY: nodeagent-bin
+nodeagent-bin:
+#	cargo build --manifest-path=src/agent/nodeagent/Cargo.toml --release --target=aarch64-unknown-linux-musl
+	cargo build --manifest-path=src/agent/nodeagent/Cargo.toml --release --target=x86_64-unknown-linux-musl
+	@echo "NodeAgent binary built at:"
+	@echo "  ./target/release/nodeagent"
 
 .PHONY: all-images
 all-images: image rocksdb-image

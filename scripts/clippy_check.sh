@@ -20,6 +20,7 @@ FAILED_TOTAL=0  # Count how many manifests failed Clippy
 
 # Declare paths to Cargo.toml manifests of components
 MAJOR_MANIFEST="src/Cargo.toml"
+NODEAGENT_MANIFEST="src/agent/nodeagent/Cargo.toml"
 ROCKSDBSERVICE_MANIFEST="src/server/rocksdbservice/Cargo.toml"
 TOOLS_MANIFEST="src/tools/Cargo.toml"
 
@@ -55,6 +56,9 @@ run_clippy() {
 
 [[ -f "$MAJOR_MANIFEST" ]] && run_clippy "$MAJOR_MANIFEST" "major" \
   || echo "::warning ::$MAJOR_MANIFEST not found, skipping..."
+
+[[ -f "$NODEAGENT_MANIFEST" ]] && run_clippy "$NODEAGENT_MANIFEST" "nodeagent" \
+  || echo "::warning ::$NODEAGENT_MANIFEST not found, skipping..."
 
 [[ -f "$ROCKSDBSERVICE_MANIFEST" ]] && run_clippy "$ROCKSDBSERVICE_MANIFEST" "rocksdbservice" \
   || echo "::warning ::$ROCKSDBSERVICE_MANIFEST not found, skipping..."

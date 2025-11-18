@@ -23,6 +23,7 @@ PIDS=()        # (Unused here but declared in case of future parallel runs)
 
 # Declare paths to Cargo.toml manifests for different crates/components
 MAJOR_MANIFEST="src/Cargo.toml"
+NODEAGENT_MANIFEST="src/agent/nodeagent/Cargo.toml"
 ROCKSDBSERVICE_MANIFEST="src/server/rocksdbservice/Cargo.toml"
 TOOLS_MANIFEST="src/tools/Cargo.toml"
 
@@ -58,6 +59,12 @@ if [[ -f "$MAJOR_MANIFEST" ]]; then
   run_fmt "$MAJOR_MANIFEST" "major"
 else
   echo "::warning ::$MAJOR_MANIFEST not found, skipping..."
+fi
+
+if [[ -f "$NODEAGENT_MANIFEST" ]]; then
+  run_fmt "$NODEAGENT_MANIFEST" "nodeagent"
+else
+  echo "::warning ::$NODEAGENT_MANIFEST not found, skipping..."
 fi
 
 if [[ -f "$ROCKSDBSERVICE_MANIFEST" ]]; then

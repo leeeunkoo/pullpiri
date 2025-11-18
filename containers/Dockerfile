@@ -16,7 +16,7 @@ COPY ./src/Cargo.toml .
 COPY ./src/common/ /piccolo/common/
 COPY ./src/server/ /piccolo/server/
 COPY ./src/player/ /piccolo/player/
-COPY ./src/agent/ /piccolo/agent/
+# COPY ./src/agent/ /piccolo/agent/
 
 # Install build dependencies
 RUN apt update -y && \
