@@ -69,7 +69,7 @@ uninstall:
 #rocksdb-image:
 #	docker buildx create --name container-builder --driver docker-container --bootstrap --use
 #	docker run --privileged --rm tonistiigi/binfmt --install all
-#	docker buildx build --push --platform linux/amd64,linux/arm64 -t ghcr.io/mco-piccolo/pullpiri-rocksdb:v11.11.0 -f src/server/rocksdbservice/Dockerfile .
+#	docker buildx build --push --platform linux/amd64,linux/arm64 -t ghcr.io/mco-piccolo/pullpiri-rocksdb:v11.18.0 -f src/server/rocksdbservice/Dockerfile .
 
 .PHONY: tools
 tools:
