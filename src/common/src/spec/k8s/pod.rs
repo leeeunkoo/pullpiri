@@ -39,6 +39,7 @@ pub struct PodSpec {
     terminationGracePeriodSeconds: Option<i32>,
     hostIPC: Option<bool>,
     runtimeClassName: Option<String>,
+    securityContext: Option<PodSecurityContext>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -52,6 +53,12 @@ pub struct Container {
     workingDir: Option<String>,
     resources: Option<Resources>,
     securityContext: Option<SecurityContext>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct PodSecurityContext {
+    runAsUser: Option<i64>,
+    runAsGroup: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -105,6 +112,8 @@ pub struct Limits {
 pub struct SecurityContext {
     privileged: Option<bool>,
     capabilities: Option<Capabilities>,
+    runAsUser: Option<i64>,
+    runAsGroup: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -167,6 +176,7 @@ mod tests {
             terminationGracePeriodSeconds: None,
             hostIPC: None,
             runtimeClassName: None,
+            securityContext: None,
         };
         assert_eq!(podspec.get_image(), Some("image-1"));
     }
@@ -183,6 +193,7 @@ mod tests {
             terminationGracePeriodSeconds: None,
             hostIPC: None,
             runtimeClassName: None,
+            securityContext: None,
         };
         assert_eq!(podspec.get_image(), None);
     }
@@ -211,6 +222,7 @@ mod tests {
             terminationGracePeriodSeconds: None,
             hostIPC: None,
             runtimeClassName: None,
+            securityContext: None,
         };
         assert_eq!(podspec.get_image(), Some(""));
     }
@@ -240,6 +252,7 @@ mod tests {
             terminationGracePeriodSeconds: None,
             hostIPC: None,
             runtimeClassName: None,
+            securityContext: None,
         };
         assert_eq!(
             podspec.get_volume(),
@@ -272,6 +285,7 @@ mod tests {
             terminationGracePeriodSeconds: None,
             hostIPC: None,
             runtimeClassName: None,
+            securityContext: None,
         };
         assert_eq!(podspec.get_volume(), &None);
     }
@@ -288,6 +302,7 @@ mod tests {
             terminationGracePeriodSeconds: None,
             hostIPC: None,
             runtimeClassName: None,
+            securityContext: None,
         };
         assert_eq!(podspec.get_volume(), &Some(vec![]));
     }
@@ -310,6 +325,7 @@ mod tests {
             terminationGracePeriodSeconds: None,
             hostIPC: None,
             runtimeClassName: None,
+            securityContext: None,
         };
         assert_eq!(
             podspec.get_volume(),
@@ -346,6 +362,7 @@ mod tests {
             terminationGracePeriodSeconds: None,
             hostIPC: None,
             runtimeClassName: None,
+            securityContext: None,
         };
         assert_eq!(podspec.get_image(), Some("special:image@tag"));
     }
