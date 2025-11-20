@@ -12,7 +12,8 @@ license = "Apache-2.0"
 
 [dependencies]
 const_format = "0.2.33"
-config = "0.15.19"
+# config = "0.15.19"
+config = { version = "0.15.19", default-features = false, features = ["json", "yaml", "toml"] }
 # etcd-client = "0.14.0"
 serde = { version = "1.0.214", features = ["derive"] }
 serde_yaml = "0.9"

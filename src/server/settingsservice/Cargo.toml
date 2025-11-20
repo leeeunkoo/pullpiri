@@ -52,7 +52,8 @@ reqwest = { version = "0.12", features = ["json"] }
 async-trait = "0.1"
 
 # Configuration
-config = "0.15.19"
+# config = "0.15.19"
+config = { version = "0.15.19", default-features = false, features = ["json", "yaml", "toml"] }
 
 # Common shared library
 common = { workspace = true }
