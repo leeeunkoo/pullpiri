@@ -193,7 +193,7 @@ impl TopicListener {
         );
 
         // 메시지 수신 루프
-        let mut interval = time::interval(time::Duration::from_millis(100));
+        let mut interval = time::interval(time::Duration::from_millis(2000));
 
         loop {
             interval.tick().await;
@@ -309,7 +309,7 @@ impl<
         );
 
         // 메시지 수신 루프
-        let mut interval = time::interval(time::Duration::from_millis(100));
+        let mut interval = time::interval(time::Duration::from_millis(2000));
 
         loop {
             interval.tick().await;
