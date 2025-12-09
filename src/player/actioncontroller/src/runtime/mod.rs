@@ -30,7 +30,6 @@ pub async fn init() -> common::Result<()> {
 //UNIT TEST
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::runtime::init;
     // Positive test case for init() function
     #[tokio::test]
@@ -49,7 +48,7 @@ mod tests {
         // We Have to Modify our init() function to return a failure under specific conditions
         // For now, it's a placeholder assuming it always returns Ok.
         // This test will assert that the result is an error (which isn't true yet)
-        let result = init().await;
+        let _ = init().await;
 
         // Assuming When we modify the init function later to return an error:
         // assert!(result.is_err(), "Expected init() to fail, got: {:?}", result);

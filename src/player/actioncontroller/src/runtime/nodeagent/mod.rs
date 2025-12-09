@@ -210,7 +210,6 @@ impl NodeAgentRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::Result;
 
     use tokio;
 

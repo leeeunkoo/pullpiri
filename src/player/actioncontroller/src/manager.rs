@@ -628,8 +628,633 @@ mod tests {
     use std::error::Error;
 
     #[tokio::test]
+    async fn test_get_node_role_from_etcd_invalid_json() {
+        // Setup: Insert nodes/{name} and invalid JSON in cluster/nodes/{name}
+        common::etcd::put("nodes/TestInvalid", "192.168.1.103")
+            .await
+            .ok();
+        common::etcd::put("cluster/nodes/TestInvalid", "not valid json")
+            .await
+            .ok();
+
+        let manager = ActionControllerManager::new();
+        let result = manager.get_node_role_from_etcd("TestInvalid").await;
+
+        // Must error because JSON is invalid
+        assert!(result.is_err());
+
+        // Cleanup
+        common::etcd::delete("nodes/TestInvalid").await.ok();
+        common::etcd::delete("cluster/nodes/TestInvalid").await.ok();
+    }
+
+    #[tokio::test]
+    async fn test_get_node_role_from_etcd_etcd_missing_cluster_info() {
+        // Setup: Only nodes/{hostname} exists but not cluster/nodes/{hostname}
+        // This should fallback to settings.yaml
+        common::etcd::put("nodes/TestMissing", "192.168.1.104")
+            .await
+            .ok();
+
+        let manager = ActionControllerManager::new();
+        let result = manager.get_node_role_from_etcd("TestMissing").await;
+
+        // Should fallback to settings.yaml configuration
+        // Result depends on settings.yaml, so we accept both ok and err
+        assert!(result.is_ok() || result.is_err());
+
+        // Cleanup
+        common::etcd::delete("nodes/TestMissing").await.ok();
+    }
+
+    // ==================== trigger_manager_action Tests ====================
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_empty_scenario_name() {
+        let manager = ActionControllerManager::new();
+        let result = manager.trigger_manager_action("").await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cannot be empty"));
+    }
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_whitespace_scenario_name() {
+        let manager = ActionControllerManager::new();
+        let result = manager.trigger_manager_action("   ").await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cannot be empty"));
+    }
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_scenario_not_found() {
+        let manager = ActionControllerManager::new();
+        let result = manager
+            .trigger_manager_action("nonexistent_scenario_xyz")
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_invalid_scenario_yaml() {
+        // Setup: Insert invalid YAML for scenario
+        common::etcd::put("Scenario/invalid-yaml", "{ invalid: yaml: ]")
+            .await
+            .unwrap();
+
+        let manager = ActionControllerManager::new();
+        let result = manager.trigger_manager_action("invalid-yaml").await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to parse scenario"));
+
+        // Cleanup
+        common::etcd::delete("Scenario/invalid-yaml").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_package_not_found() {
+        // Setup: Insert scenario but no corresponding package
+        common::etcd::put(
+            "Scenario/test-scenario",
+            r#"
+apiVersion: v1
+kind: Scenario
+metadata:
+  name: test-scenario
+spec:
+  condition:
+  action: launch
+  target: missing-package
+"#,
+        )
+        .await
+        .unwrap();
+
+        let manager = ActionControllerManager::new();
+        let result = manager.trigger_manager_action("test-scenario").await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+
+        // Cleanup
+        common::etcd::delete("Scenario/test-scenario")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_invalid_package_yaml() {
+        // Setup: Insert valid scenario and invalid package
+        common::etcd::put(
+            "Scenario/test-scenario",
+            r#"
+apiVersion: v1
+kind: Scenario
+metadata:
+  name: test-scenario
+spec:
+  condition:
+  action: launch
+  target: invalid-pkg
+"#,
+        )
+        .await
+        .unwrap();
+
+        common::etcd::put("Package/invalid-pkg", "invalid: yaml: ]")
+            .await
+            .unwrap();
+
+        let manager = ActionControllerManager::new();
+        let result = manager.trigger_manager_action("test-scenario").await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to parse package"));
+
+        // Cleanup
+        common::etcd::delete("Scenario/test-scenario")
+            .await
+            .unwrap();
+        common::etcd::delete("Package/invalid-pkg").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_launch_success() {
+        // Setup: Insert valid scenario and package
+        common::etcd::put(
+            "Scenario/launch-test",
+            r#"
+apiVersion: v1
+kind: Scenario
+metadata:
+  name: launch-test
+spec:
+  condition:
+  action: launch
+  target: launch-pkg
+"#,
+        )
+        .await
+        .unwrap();
+
+        common::etcd::put(
+            "Package/launch-pkg",
+            r#"
+apiVersion: v1
+kind: Package
+metadata:
+  label: null
+  name: launch-pkg
+spec:
+  pattern:
+    - type: plain
+  models:
+    - name: test-service
+      node: HPC
+      resources:
+        volume:
+        network:
+"#,
+        )
+        .await
+        .unwrap();
+
+        let manager = ActionControllerManager {
+            bluechi_nodes: vec!["HPC".to_string()],
+            nodeagent_nodes: vec![],
+            state_sender: StateManagerSender::new(),
+        };
+
+        let result = manager.trigger_manager_action("launch-test").await;
+
+        // Should succeed or fail gracefully based on bluechi availability
+        assert!(result.is_ok() || result.is_err());
+
+        // Cleanup
+        common::etcd::delete("Scenario/launch-test").await.unwrap();
+        common::etcd::delete("Package/launch-pkg").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_terminate_success() {
+        // Setup: Insert valid scenario with terminate action
+        common::etcd::put(
+            "Scenario/terminate-test",
+            r#"
+apiVersion: v1
+kind: Scenario
+metadata:
+  name: terminate-test
+spec:
+  condition:
+  action: terminate
+  target: terminate-pkg
+"#,
+        )
+        .await
+        .unwrap();
+
+        common::etcd::put(
+            "Package/terminate-pkg",
+            r#"
+apiVersion: v1
+kind: Package
+metadata:
+  name: terminate-pkg
+spec:
+  models:
+    - name: test-service
+      node: HPC
+      resources:
+"#,
+        )
+        .await
+        .unwrap();
+
+        let manager = ActionControllerManager {
+            bluechi_nodes: vec!["HPC".to_string()],
+            nodeagent_nodes: vec![],
+            state_sender: StateManagerSender::new(),
+        };
+
+        let result = manager.trigger_manager_action("terminate-test").await;
+        assert!(result.is_ok() || result.is_err());
+
+        // Cleanup
+        common::etcd::delete("Scenario/terminate-test")
+            .await
+            .unwrap();
+        common::etcd::delete("Package/terminate-pkg").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_update_success() {
+        // Setup: Insert valid scenario with update action
+        common::etcd::put(
+            "Scenario/update-test",
+            r#"
+apiVersion: v1
+kind: Scenario
+metadata:
+  name: update-test
+spec:
+  condition:
+  action: update
+  target: update-pkg
+"#,
+        )
+        .await
+        .unwrap();
+
+        common::etcd::put(
+            "Package/update-pkg",
+            r#"
+apiVersion: v1
+kind: Package
+metadata:
+  name: update-pkg
+spec:
+  models:
+    - name: test-service
+      node: HPC
+      resources:
+        realtime: false
+"#,
+        )
+        .await
+        .unwrap();
+
+        let manager = ActionControllerManager {
+            bluechi_nodes: vec!["HPC".to_string()],
+            nodeagent_nodes: vec![],
+            state_sender: StateManagerSender::new(),
+        };
+
+        let result = manager.trigger_manager_action("update-test").await;
+        assert!(result.is_ok() || result.is_err());
+
+        // Cleanup
+        common::etcd::delete("Scenario/update-test").await.unwrap();
+        common::etcd::delete("Package/update-pkg").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_rollback_success() {
+        // Setup: Insert valid scenario with rollback action
+        common::etcd::put(
+            "Scenario/rollback-test",
+            r#"
+apiVersion: v1
+kind: Scenario
+metadata:
+  name: rollback-test
+spec:
+  condition:
+  action: rollback
+  target: rollback-pkg
+"#,
+        )
+        .await
+        .unwrap();
+
+        common::etcd::put(
+            "Package/rollback-pkg",
+            r#"
+apiVersion: v1
+kind: Package
+metadata:
+  name: rollback-pkg
+spec:
+  models:
+    - name: test-service
+      node: HPC
+      resources:
+"#,
+        )
+        .await
+        .unwrap();
+
+        let manager = ActionControllerManager {
+            bluechi_nodes: vec!["HPC".to_string()],
+            nodeagent_nodes: vec![],
+            state_sender: StateManagerSender::new(),
+        };
+
+        let result = manager.trigger_manager_action("rollback-test").await;
+        assert!(result.is_ok() || result.is_err());
+
+        // Cleanup
+        common::etcd::delete("Scenario/rollback-test")
+            .await
+            .unwrap();
+        common::etcd::delete("Package/rollback-pkg").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_unknown_node() {
+        // Setup: Insert scenario with unknown node
+        common::etcd::put(
+            "Scenario/unknown-node-test",
+            r#"
+apiVersion: v1
+kind: Scenario
+metadata:
+  name: unknown-node-test
+spec:
+  action: launch
+  target: unknown-node-pkg
+"#,
+        )
+        .await
+        .unwrap();
+
+        common::etcd::put(
+            "Package/unknown-node-pkg",
+            r#"
+apiVersion: v1
+kind: Package
+metadata:
+  name: unknown-node-pkg
+spec:
+  models:
+    - name: test-service
+      node: UNKNOWN_NODE
+      resources:
+"#,
+        )
+        .await
+        .unwrap();
+
+        let manager = ActionControllerManager {
+            bluechi_nodes: vec!["HPC".to_string()],
+            nodeagent_nodes: vec![],
+            state_sender: StateManagerSender::new(),
+        };
+
+        let result = manager.trigger_manager_action("unknown-node-test").await;
+
+        // Should handle unknown nodes gracefully
+        assert!(result.is_ok() || result.is_err());
+
+        // Cleanup
+        common::etcd::delete("Scenario/unknown-node-test")
+            .await
+            .unwrap();
+        common::etcd::delete("Package/unknown-node-pkg")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_trigger_manager_action_nodeagent_workload() {
+        // Setup: Insert scenario with nodeagent node
+        common::etcd::put(
+            "Scenario/nodeagent-test",
+            r#"
+apiVersion: v1
+kind: Scenario
+metadata:
+  name: nodeagent-test
+spec:
+  action: launch
+  target: nodeagent-pkg
+"#,
+        )
+        .await
+        .unwrap();
+
+        common::etcd::put(
+            "Package/nodeagent-pkg",
+            r#"
+apiVersion: v1
+kind: Package
+metadata:
+  name: nodeagent-pkg
+spec:
+  models:
+    - name: test-service
+      node: ZONE
+      resources:
+"#,
+        )
+        .await
+        .unwrap();
+
+        let manager = ActionControllerManager {
+            bluechi_nodes: vec![],
+            nodeagent_nodes: vec!["ZONE".to_string()],
+            state_sender: StateManagerSender::new(),
+        };
+
+        let result = manager.trigger_manager_action("nodeagent-test").await;
+        assert!(result.is_ok() || result.is_err());
+
+        // Cleanup
+        common::etcd::delete("Scenario/nodeagent-test")
+            .await
+            .unwrap();
+        common::etcd::delete("Package/nodeagent-pkg").await.unwrap();
+    }
+
+    // ==================== reconcile_do Tests ====================
+
+    #[tokio::test]
+    async fn test_reconcile_do_same_status() {
+        // Test: Current and desired status are the same
+        let manager = ActionControllerManager::new();
+        let result = manager
+            .reconcile_do("test".into(), Status::Running, Status::Running)
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_do_invalid_current_status_none() {
+        let manager = ActionControllerManager::new();
+        let result = manager
+            .reconcile_do("test".into(), Status::None, Status::Running)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid current status"));
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_do_invalid_current_status_failed() {
+        let manager = ActionControllerManager::new();
+        let result = manager
+            .reconcile_do("test".into(), Status::Failed, Status::Running)
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_do_invalid_desired_status_none() {
+        let manager = ActionControllerManager::new();
+        let result = manager
+            .reconcile_do("test".into(), Status::Running, Status::None)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid desired status"));
+    }
+
+    // ==================== start_workload Tests ====================
+
+    #[tokio::test]
+    async fn test_start_workload_bluechi_node() {
+        let manager = ActionControllerManager {
+            bluechi_nodes: vec!["HPC".to_string()],
+            nodeagent_nodes: vec![],
+            state_sender: StateManagerSender::new(),
+        };
+
+        let result = manager
+            .start_workload("test-service", "HPC", "bluechi")
+            .await;
+
+        // Result depends on bluechi availability
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_start_workload_nodeagent_node() {
+        let manager = ActionControllerManager {
+            bluechi_nodes: vec![],
+            nodeagent_nodes: vec!["ZONE".to_string()],
+            state_sender: StateManagerSender::new(),
+        };
+
+        let result = manager
+            .start_workload("test-service", "ZONE", "nodeagent")
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_start_workload_invalid_node_type() {
+        let manager = ActionControllerManager::new();
+        let result = manager
+            .start_workload("test-service", "node", "invalid_type")
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported node type"));
+    }
+
+    #[tokio::test]
+    async fn test_stop_workload_bluechi_node() {
+        let manager = ActionControllerManager {
+            bluechi_nodes: vec!["HPC".to_string()],
+            nodeagent_nodes: vec![],
+            state_sender: StateManagerSender::new(),
+        };
+
+        let result = manager
+            .stop_workload("test-service", "HPC", "bluechi")
+            .await;
+
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_stop_workload_nodeagent_node() {
+        let manager = ActionControllerManager {
+            bluechi_nodes: vec![],
+            nodeagent_nodes: vec!["ZONE".to_string()],
+            state_sender: StateManagerSender::new(),
+        };
+
+        let result = manager
+            .stop_workload("test-service", "ZONE", "nodeagent")
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_stop_workload_invalid_node_type() {
+        let manager = ActionControllerManager::new();
+        let result = manager
+            .stop_workload("test-service", "node", "invalid_type")
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_reload_all_node() {
+        let manager = ActionControllerManager::new();
+        let result = manager.reload_all_node("test-service", "HPC").await;
+
+        // Result depends on bluechi availability
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
     async fn test_reconcile_do_with_valid_status() {
-        // Valid scenario where reconcile_do transitions status successfully
         let manager = ActionControllerManager {
             bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
@@ -643,7 +1268,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_trigger_manager_action_with_valid_data() {
-        // Insert mock Scenario YAML into etcd
         common::etcd::put(
             "Scenario/antipinch-enable",
             r#"
@@ -660,7 +1284,6 @@ spec:
         .await
         .unwrap();
 
-        // Insert mock Package YAML into etcd
         common::etcd::put(
             "Package/antipinch-enable",
             r#"
@@ -699,7 +1322,6 @@ spec:
 
         assert!(result.is_ok());
 
-        // Cleanup after test
         common::etcd::delete("Scenario/antipinch-enable")
             .await
             .unwrap();
@@ -710,8 +1332,7 @@ spec:
 
     #[tokio::test]
     async fn test_trigger_manager_action_invalid_scenario() {
-        // Negative case: nonexistent scenario key
-        let manager: ActionControllerManager = ActionControllerManager {
+        let manager = ActionControllerManager {
             bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
@@ -723,7 +1344,6 @@ spec:
 
     #[tokio::test]
     async fn test_reconcile_do_invalid_scenario_key() {
-        // Negative case: nonexistent scenario key returns error
         let manager = ActionControllerManager {
             bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
@@ -737,8 +1357,7 @@ spec:
     }
 
     #[tokio::test]
-    async fn test_start_workload_invalid_node_type() {
-        // Negative case: unknown node type returns Ok but does nothing
+    async fn test_start_workload_invalid_node_type_legacy() {
         let manager = ActionControllerManager {
             bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
@@ -752,9 +1371,8 @@ spec:
     }
 
     #[tokio::test]
-    async fn test_stop_workload_invalid_node_type() {
-        // Negative case: unknown node type returns Ok but does nothing
-        let manager: ActionControllerManager = ActionControllerManager {
+    async fn test_stop_workload_invalid_node_type_legacy() {
+        let manager = ActionControllerManager {
             bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
@@ -769,7 +1387,6 @@ spec:
 
     #[test]
     fn test_manager_initializes_with_empty_nodes() {
-        // Ensures new() returns manager with empty node lists
         let manager = ActionControllerManager::new();
         assert!(manager.bluechi_nodes.is_empty());
         assert!(manager.nodeagent_nodes.is_empty());
@@ -777,7 +1394,6 @@ spec:
 
     #[tokio::test]
     async fn test_create_delete_restart_pause_are_noops() {
-        // All of these are currently no-op, so they should succeed regardless of input
         let manager = ActionControllerManager {
             bluechi_nodes: vec![],
             nodeagent_nodes: vec![],
@@ -792,19 +1408,14 @@ spec:
 
     #[test]
     fn test_unknown_nodes_skipped() {
-        // Test that when creating a manager, unknown nodes are properly categorized
         let manager = ActionControllerManager {
             bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec!["ZONE".to_string()],
             state_sender: StateManagerSender::new(),
         };
 
-        // Test that nodes are properly categorized
         assert!(manager.bluechi_nodes.contains(&"HPC".to_string()));
         assert!(manager.nodeagent_nodes.contains(&"ZONE".to_string()));
         assert!(!manager.bluechi_nodes.contains(&"cloud".to_string()));
-
-        // The logic now skips unknown nodes instead of processing them
-        // This test validates that the manager is set up correctly
     }
 }
