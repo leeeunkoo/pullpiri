@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 pub mod dds;
 
 use common::Result;
@@ -39,10 +43,9 @@ impl VehicleManager {
             Err(e) => {
                 log::warn!("Failed to initialize DDS manager with settings file: {}. Using default settings.", e);
                 // 기본 설정 적용
+                self.set_domain_id(100); // Set default domain ID
             }
         }
-        self.set_domain_id(100); // Set default domain ID
-
         Ok(())
     }
 

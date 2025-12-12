@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 //! Node command implementation
 
 use crate::commands::{print_error, print_info, print_json, print_success};

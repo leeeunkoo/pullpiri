@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 use dust_dds_derive::DdsType;
 use filtergateway::vehicle::dds::listener::{
     DdsTopicListener, GenericTopicListener, TopicListener,

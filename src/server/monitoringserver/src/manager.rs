@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 //! MonitoringServerManager: Asynchronous manager for MonitoringServer
 //!
 //! This struct manages scenario requests received via gRPC, and provides

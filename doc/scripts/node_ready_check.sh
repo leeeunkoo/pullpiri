@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+# SPDX-License-Identifier: Apache-2.0
 # node_ready_check.sh - Node clustering pre-state check script
 # Optimized system check for embedded environments
 

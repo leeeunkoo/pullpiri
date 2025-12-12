@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # PICCOLO Settings Service
 
 The Settings Service is a core component of the PICCOLO framework that provides centralized configuration management and metrics filtering capabilities for vehicle service orchestration.

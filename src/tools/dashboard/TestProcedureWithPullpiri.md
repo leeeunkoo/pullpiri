@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # Test Procedure: Dashboard Integration with Monitoring Server and Settings Service
 
 This guide describes how to set up and validate the integration between the NodeAgent, Monitoring Server, and Settings Service for dashboard development.

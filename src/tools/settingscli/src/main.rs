@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 //! SettingsCLI - Command Line Interface for Pullpiri SettingsService
 //!
 //! This CLI tool provides a convenient way to interact with the Pullpiri SettingsService

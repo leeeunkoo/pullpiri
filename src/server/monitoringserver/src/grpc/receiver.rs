@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 use common::monitoringserver::monitoring_server_connection_server::MonitoringServerConnection;
 use common::monitoringserver::{
     ContainerList, NodeInfo, SendContainerListResponse, SendNodeInfoResponse,

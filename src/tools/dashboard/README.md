@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # Pullpiri Dashboard
 
 Pullpiri Dashboard는 Podman 등 컨테이너 작업을 웹에서 직관적으로 관리할 수 있도록 만든 React 기반 대시보드입니다.  

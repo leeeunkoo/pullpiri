@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
 # This template contains all of the possible sections and their default values
 
 # Note that all fields that take a lint level have these possible values:
@@ -68,8 +71,10 @@ feature-depth = 1
 # The url(s) of the advisory databases to use
 #db-urls = ["https://github.com/rustsec/advisory-db"]
 # A list of advisory IDs to ignore. Note that ignored advisories will still
+# ignore the advisory
 # output a note when they are encountered.
 ignore = [
+    "RUSTSEC-2025-0134" 
     #"RUSTSEC-0000-0000",
     #{ id = "RUSTSEC-0000-0000", reason = "you can specify a reason the advisory is ignored" },
     #"a-crate-that-is-yanked@0.1.1", # you can also ignore yanked crate versions if you wish

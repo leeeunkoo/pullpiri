@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+# SPDX-License-Identifier: Apache-2.0
 
 #BODY=$(< ./resources/helloworld.yaml)
 BODY=$(< ./resources/helloworld_no_condition.yaml)

@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 ## 1. 문서의 목적
 이 문서는 StateManager컴포넌트에 package의 state 변경하는 기능을 추가하기 위해 작성되었습니다.
 StateManager의 manager.rs는 model의 state가 변경되면 연쇄적으로 state_machine.rs의 'package의 상태가 변경되는지 확인하는 함수'를 호출하고 state_machine.rs에 구현된 해당 함수는 `<model, state>` 리스트를 전달받아 package의 특정 state 조건과 일치하면 package의 state를 변경하여 return 합니다. 

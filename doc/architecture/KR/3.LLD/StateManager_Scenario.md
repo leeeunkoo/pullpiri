@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 ## 0. 문서의 목적
 이 문서는 StateManager컴포넌트에 scenario의 state 변경하는 기능을 추가하기 위해 작성되었습니다.
 StateManager는 FilterGateway, PolicyManager, ActionController 컴포넌트로부터 scenario의 상태 정보를 전달받아 ETCD에 `<scenario_name, state>`형태로 put을 요청합니다. 

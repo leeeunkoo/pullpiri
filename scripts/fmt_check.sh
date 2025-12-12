@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail  # Exit immediately on error, unset variable, or pipe failure
 
 LOG_FILE="fmt_results.log"

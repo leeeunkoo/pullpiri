@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 use common::Result;
 use std::collections::HashMap;
 
@@ -206,7 +210,6 @@ impl NodeAgentRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::Result;
 
     use tokio;
 

@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 ## 0. 문서의 목적
 이 문서는 StateManager컴포넌트에 model의 state 변경하는 기능을 추가하기 위해 작성되었습니다.
 StateManager는 NodeAgent 컴포넌트로부터 pod과 container들의 상태 정보를 전달받아 `<container, state>` 리스트가 model의 특정 state 조건과 일치하면 model의 state를 변경합니다.

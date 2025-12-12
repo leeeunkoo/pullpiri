@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 ## 1. Scenario 상태 정의 및 상태 전이 조건 요약표
 | 상태 | 설명 | 전이 조건 | 담당 컴포넌트 | 다음 상태 |
 |------|------|-----------|---------------|-----------|

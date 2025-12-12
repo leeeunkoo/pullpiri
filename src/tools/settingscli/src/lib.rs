@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 //! SettingsCLI Library
 //!
 //! This library provides the core functionality for the SettingsCLI tool,

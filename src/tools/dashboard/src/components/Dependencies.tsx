@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+// SPDX-License-Identifier: Apache-2.0
 import { useState, useRef/*, useEffect */} from "react"; // 2025-09-23 comment out
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";

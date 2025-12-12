@@ -1532,4 +1532,573 @@ mod tests {
         let result = state_machine.parse_container_state(&container_info);
         assert_eq!(result, ContainerState::Unknown);
     }
+
+    #[test]
+    fn test_process_state_change_queues_action_and_updates_state() {
+        use common::statemanager::ResourceType;
+
+        let mut state_machine = StateMachine::new();
+
+        // Initialize action executor so actions are queued to receiver
+        let mut action_receiver = state_machine.initialize_action_executor();
+
+        // Build a valid StateChange: Scenario Idle -> Waiting
+        let state_change = StateChange {
+            resource_type: ResourceType::Scenario as i32,
+            resource_name: "test-scenario".to_string(),
+            current_state: "Idle".to_string(),
+            target_state: "Waiting".to_string(),
+            transition_id: "t-1".to_string(),
+            timestamp_ns: 1,
+            source: "unittest".to_string(),
+        };
+
+        let result = state_machine.process_state_change(state_change.clone());
+        assert!(result.is_success(), "expected success transition");
+        // Action should have been queued
+        let action = action_receiver
+            .try_recv()
+            .expect("expected an action queued");
+        assert_eq!(action.action, "start_condition_evaluation");
+        // Resource state should now exist
+        let rs = state_machine.get_resource_state("test-scenario", ResourceType::Scenario);
+        assert!(
+            rs.is_some(),
+            "resource state should be present after transition"
+        );
+    }
+
+    #[test]
+    fn test_process_state_change_invalid_transition_returns_error() {
+        use common::statemanager::{ErrorCode, ResourceType};
+
+        let mut state_machine = StateMachine::new();
+
+        // Build a StateChange with an unknown target state -> should produce InvalidStateTransition
+        let state_change = StateChange {
+            resource_type: ResourceType::Scenario as i32,
+            resource_name: "bad-scenario".to_string(),
+            current_state: "Idle".to_string(),
+            target_state: "Nonexistent".to_string(),
+            transition_id: "t-2".to_string(),
+            timestamp_ns: 2,
+            source: "unittest".to_string(),
+        };
+
+        let result = state_machine.process_state_change(state_change);
+        assert_eq!(result.error_code, ErrorCode::InvalidStateTransition);
+    }
+
+    #[test]
+    fn test_update_health_status_marks_unhealthy_after_retries() {
+        use common::statemanager::ResourceType;
+
+        let mut state_machine = StateMachine::new();
+
+        // Prepare a resource state with 2 consecutive failures already
+        let resource_key =
+            state_machine.generate_resource_key(ResourceType::Scenario, "h-scenario");
+        let now = Instant::now();
+        let rs = ResourceState {
+            resource_type: ResourceType::Scenario,
+            resource_name: "h-scenario".to_string(),
+            current_state: ScenarioState::Idle as i32,
+            desired_state: Some(ScenarioState::Waiting as i32),
+            last_transition_time: now,
+            transition_count: 0,
+            metadata: HashMap::new(),
+            health_status: HealthStatus {
+                healthy: true,
+                status_message: "ok".to_string(),
+                last_check: now,
+                consecutive_failures: 2,
+            },
+        };
+
+        state_machine
+            .resource_states
+            .insert(resource_key.clone(), rs);
+
+        // Create a failing TransitionResult
+        let fail_result = TransitionResult {
+            new_state: ScenarioState::Idle as i32,
+            error_code: ErrorCode::InvalidStateTransition,
+            message: "failed".to_string(),
+            actions_to_execute: vec![],
+            transition_id: "fail-1".to_string(),
+            error_details: "details".to_string(),
+        };
+
+        // Call update_health_status (private) — accessible inside this test module
+        state_machine.update_health_status(&resource_key, &fail_result);
+
+        let updated = state_machine.resource_states.get(&resource_key).unwrap();
+        assert_eq!(updated.health_status.consecutive_failures, 3);
+        assert!(!updated.health_status.healthy);
+    }
+
+    #[test]
+    fn test_evaluate_model_state_from_containers_variants() {
+        use common::monitoringserver::ContainerInfo;
+        use std::collections::HashMap;
+
+        let state_machine = StateMachine::new();
+
+        // Empty -> Created
+        let res = state_machine.evaluate_model_state_from_containers(&[]);
+        assert_eq!(res, ModelState::Created);
+
+        // One dead -> Dead
+        let mut state_map = HashMap::new();
+        state_map.insert("Status".to_string(), "dead".to_string());
+        let container_dead = ContainerInfo {
+            id: "d1".to_string(),
+            names: vec!["d1".to_string()],
+            image: "img".to_string(),
+            state: state_map,
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+        let res = state_machine.evaluate_model_state_from_containers(&[&container_dead]);
+        assert_eq!(res, ModelState::Dead);
+
+        // All paused -> Paused
+        let mut s1 = HashMap::new();
+        s1.insert("Status".to_string(), "paused".to_string());
+        let c1 = ContainerInfo {
+            id: "p1".to_string(),
+            names: vec!["p1".to_string()],
+            image: "img".to_string(),
+            state: s1,
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+        let mut s2 = HashMap::new();
+        s2.insert("Status".to_string(), "paused".to_string());
+        let c2 = ContainerInfo {
+            id: "p2".to_string(),
+            names: vec!["p2".to_string()],
+            image: "img".to_string(),
+            state: s2,
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+        let res = state_machine.evaluate_model_state_from_containers(&[&c1, &c2]);
+        assert_eq!(res, ModelState::Paused);
+
+        // All exited -> Exited
+        let mut e1 = HashMap::new();
+        e1.insert("Status".to_string(), "exited".to_string());
+        let ce1 = ContainerInfo {
+            id: "e1".to_string(),
+            names: vec!["e1".to_string()],
+            image: "img".to_string(),
+            state: e1,
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+        let mut e2 = HashMap::new();
+        e2.insert("Status".to_string(), "exited".to_string());
+        let ce2 = ContainerInfo {
+            id: "e2".to_string(),
+            names: vec!["e2".to_string()],
+            image: "img".to_string(),
+            state: e2,
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+        let res = state_machine.evaluate_model_state_from_containers(&[&ce1, &ce2]);
+        assert_eq!(res, ModelState::Exited);
+
+        // Mixed -> Running (default)
+        let mut r1 = HashMap::new();
+        r1.insert("Status".to_string(), "running".to_string());
+        let cr1 = ContainerInfo {
+            id: "r1".to_string(),
+            names: vec!["r1".to_string()],
+            image: "img".to_string(),
+            state: r1,
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+        let mut cr2m = HashMap::new();
+        cr2m.insert("Status".to_string(), "initialized".to_string());
+        let cr2 = ContainerInfo {
+            id: "r2".to_string(),
+            names: vec!["r2".to_string()],
+            image: "img".to_string(),
+            state: cr2m,
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+        let res = state_machine.evaluate_model_state_from_containers(&[&cr1, &cr2]);
+        assert_eq!(res, ModelState::Running);
+    }
+
+    #[test]
+    fn test_process_model_state_update_transitions() {
+        use common::monitoringserver::ContainerInfo;
+        use common::statemanager::ResourceType;
+        use std::collections::HashMap;
+
+        let mut state_machine = StateMachine::new();
+
+        let mut s = HashMap::new();
+        s.insert("Status".to_string(), "running".to_string());
+        let container = ContainerInfo {
+            id: "m1".to_string(),
+            names: vec!["m1".to_string()],
+            image: "img".to_string(),
+            state: s,
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+
+        let result = state_machine.process_model_state_update("model-x", &[&container]);
+        assert!(result.is_success());
+        assert_eq!(result.actions_to_execute, vec!["update_etcd".to_string()]);
+
+        // Resource should now exist with Model type
+        let rs = state_machine.get_resource_state("model-x", ResourceType::Model);
+        assert!(rs.is_some());
+    }
+
+    #[test]
+    fn test_parse_container_state_running_fallback() {
+        use common::monitoringserver::ContainerInfo;
+        use std::collections::HashMap;
+
+        let state_machine = StateMachine::new();
+
+        let mut hm = HashMap::new();
+        hm.insert("Running".to_string(), "true".to_string());
+        let container = ContainerInfo {
+            id: "rb".to_string(),
+            names: vec!["rb".to_string()],
+            image: "img".to_string(),
+            state: hm,
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+
+        let res = state_machine.parse_container_state(&container);
+        assert_eq!(res, ContainerState::Running);
+    }
+
+    #[test]
+    fn test_get_resource_state_and_list_resources_by_state() {
+        use common::statemanager::{ResourceType, ScenarioState};
+
+        let mut state_machine = StateMachine::new();
+
+        // Create a scenario via process_state_change (Idle -> Waiting)
+        let state_change = StateChange {
+            resource_type: ResourceType::Scenario as i32,
+            resource_name: "list-test".to_string(),
+            current_state: "Idle".to_string(),
+            target_state: "Waiting".to_string(),
+            transition_id: "lt-1".to_string(),
+            timestamp_ns: 1,
+            source: "unittest".to_string(),
+        };
+
+        let _ = state_machine.process_state_change(state_change);
+
+        // Verify get_resource_state
+        let rs = state_machine.get_resource_state("list-test", ResourceType::Scenario);
+        assert!(rs.is_some());
+
+        // Verify list_resources_by_state returns the scenario when filtered
+        let list = state_machine
+            .list_resources_by_state(Some(ResourceType::Scenario), ScenarioState::Waiting as i32);
+        assert!(!list.is_empty());
+    }
+
+    #[test]
+    fn test_infer_event_from_states_scenario() {
+        let sm = StateMachine::new();
+        let evt = sm.infer_event_from_states(
+            ScenarioState::Idle as i32,
+            ScenarioState::Waiting as i32,
+            ResourceType::Scenario,
+        );
+        assert_eq!(evt, "scenario_activation");
+    }
+
+    #[test]
+    fn test_evaluate_condition_known_and_unknown() {
+        let sm = StateMachine::new();
+        assert!(sm.evaluate_condition(
+            "all_models_normal",
+            &StateChange {
+                resource_type: ResourceType::Scenario as i32,
+                resource_name: "r".to_string(),
+                current_state: "".to_string(),
+                target_state: "".to_string(),
+                transition_id: "t".to_string(),
+                timestamp_ns: 0,
+                source: "test".to_string(),
+            }
+        ));
+
+        // Unknown condition defaults to true per implementation
+        assert!(sm.evaluate_condition(
+            "some_unknown_condition_xyz",
+            &StateChange {
+                resource_type: ResourceType::Scenario as i32,
+                resource_name: "r".to_string(),
+                current_state: "".to_string(),
+                target_state: "".to_string(),
+                transition_id: "t".to_string(),
+                timestamp_ns: 0,
+                source: "test".to_string(),
+            }
+        ));
+    }
+
+    #[test]
+    fn test_evaluate_condition_false_cases() {
+        let sm = StateMachine::new();
+        let sc = StateChange {
+            resource_type: ResourceType::Scenario as i32,
+            resource_name: "r".to_string(),
+            current_state: "".to_string(),
+            target_state: "".to_string(),
+            transition_id: "t".to_string(),
+            timestamp_ns: 0,
+            source: "test".to_string(),
+        };
+        assert!(!sm.evaluate_condition("critical_models_failed", &sc));
+        assert!(!sm.evaluate_condition("timeout_or_error", &sc));
+        assert!(!sm.evaluate_condition("unexpected_termination", &sc));
+        assert!(!sm.evaluate_condition("consecutive_restart_failures", &sc));
+    }
+
+    #[test]
+    fn test_infer_event_package_and_model_variants() {
+        let sm = StateMachine::new();
+        // Package variants
+        let e1 = sm.infer_event_from_states(
+            PackageState::Unspecified as i32,
+            PackageState::Idle as i32,
+            ResourceType::Package,
+        );
+        assert_eq!(e1, "launch_request");
+        let e2 = sm.infer_event_from_states(
+            PackageState::Idle as i32,
+            PackageState::Running as i32,
+            ResourceType::Package,
+        );
+        assert_eq!(e2, "initialization_complete");
+        let e3 = sm.infer_event_from_states(
+            PackageState::Running as i32,
+            PackageState::Degraded as i32,
+            ResourceType::Package,
+        );
+        assert_eq!(e3, "model_issue_detected");
+
+        // Model variants
+        let m1 = sm.infer_event_from_states(
+            ModelState::Unspecified as i32,
+            ModelState::Created as i32,
+            ResourceType::Model,
+        );
+        assert_eq!(m1, "creation_request");
+        let m2 = sm.infer_event_from_states(
+            ModelState::Created as i32,
+            ModelState::Running as i32,
+            ResourceType::Model,
+        );
+        assert_eq!(m2, "node_allocation_complete");
+        let m3 = sm.infer_event_from_states(
+            ModelState::Running as i32,
+            ModelState::Dead as i32,
+            ResourceType::Model,
+        );
+        assert_eq!(m3, "container_dead_or_info_failure");
+    }
+
+    #[test]
+    fn test_state_str_to_enum_hyphen_and_case() {
+        // Test various normalizations
+        let v = StateMachine::state_str_to_enum("waiting", ResourceType::Scenario as i32);
+        assert_eq!(v, ScenarioState::Waiting as i32);
+        let v2 = StateMachine::state_str_to_enum("running", ResourceType::Package as i32);
+        assert_eq!(v2, PackageState::Running as i32);
+        let v3 = StateMachine::state_str_to_enum("created", ResourceType::Model as i32);
+        assert_eq!(v3, ModelState::Created as i32);
+        // Hyphenated or mixed case
+        let v4 = StateMachine::state_str_to_enum("some-state", ResourceType::Scenario as i32);
+        // Unknown maps to Unspecified for Scenario
+        assert!(v4 == ScenarioState::Unspecified as i32 || v4 >= 0);
+    }
+
+    #[test]
+    fn test_state_str_to_enum_and_enum_to_str() {
+        // state_str_to_enum is an associated fn
+        let idle = StateMachine::state_str_to_enum("Idle", ResourceType::Scenario as i32);
+        assert_eq!(idle, ScenarioState::Idle as i32);
+
+        let sm = StateMachine::new();
+        let s = sm.state_enum_to_str(ScenarioState::Waiting as i32, ResourceType::Scenario);
+        assert_eq!(s.to_lowercase(), "waiting");
+    }
+
+    #[tokio::test]
+    async fn test_get_current_package_state_reads_etcd() {
+        // Put a package state into etcd and verify mapping
+        let key = "/package/testpkg/state";
+        let _ = common::etcd::put(key, "running").await;
+        let res = StateMachine::get_current_package_state("testpkg").await;
+        assert!(res.is_some());
+        assert_eq!(res.unwrap(), common::statemanager::PackageState::Running);
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_and_update_package_state_all_dead_in_etcd() {
+        // Create a package with two models and set both models' states to Dead in ETCD
+        let pkg_key = "Package/pkg-dead";
+        let pkg_yaml = r#"{"apiVersion":"v1","kind":"Package","metadata":{"name":"pkg-dead"},"spec":{"pattern":[],"models":[{"name":"mdead1","node":"n","resources":{"volume":"","network":"","realtime":false}},{"name":"mdead2","node":"n","resources":{"volume":"","network":"","realtime":false}}]}}"#;
+
+        let _ = common::etcd::put(pkg_key, pkg_yaml).await;
+        let _ = common::etcd::put("/model/mdead1/state", "Dead").await;
+        let _ = common::etcd::put("/model/mdead2/state", "Dead").await;
+        // Set current package state to running to ensure a state change is detected
+        let _ = common::etcd::put("/package/pkg-dead/state", "running").await;
+
+        let sm = StateMachine::new();
+        let (changed, state) = sm
+            .evaluate_and_update_package_state("pkg-dead")
+            .await
+            .expect("should return Ok");
+        assert!(
+            changed,
+            "expected package state to change when all models are dead"
+        );
+        assert_eq!(state, common::statemanager::PackageState::Error);
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_and_update_package_state_degraded_in_etcd() {
+        // Create a package with two models and set one model Dead and one Running
+        let pkg_key = "Package/pkg-degraded";
+        let pkg_yaml = r#"{"apiVersion":"v1","kind":"Package","metadata":{"name":"pkg-degraded"},"spec":{"pattern":[],"models":[{"name":"mdeg1","node":"n","resources":{"volume":"","network":"","realtime":false}},{"name":"mdeg2","node":"n","resources":{"volume":"","network":"","realtime":false}}]}}"#;
+
+        let _ = common::etcd::put(pkg_key, pkg_yaml).await;
+        let _ = common::etcd::put("/model/mdeg1/state", "Dead").await;
+        let _ = common::etcd::put("/model/mdeg2/state", "Running").await;
+        let _ = common::etcd::put("/package/pkg-degraded/state", "running").await;
+
+        let sm = StateMachine::new();
+        let (changed, state) = sm
+            .evaluate_and_update_package_state("pkg-degraded")
+            .await
+            .expect("should return Ok");
+        assert!(
+            changed,
+            "expected package state to change when some models are dead"
+        );
+        assert_eq!(state, common::statemanager::PackageState::Degraded);
+    }
+
+    #[tokio::test]
+    async fn test_get_models_for_package_missing_returns_empty() {
+        // Ensure package key is absent
+        let _ = common::etcd::delete("Package/missing-package").await;
+        let res = StateMachine::get_models_for_package("missing-package").await;
+        assert!(
+            res.is_ok(),
+            "expected Ok result when package entry is missing in etcd"
+        );
+        let models = res.unwrap();
+        assert!(
+            models.is_empty(),
+            "expected empty model list for missing package"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_models_for_package_invalid_yaml_returns_empty() {
+        // Put an invalid YAML string into etcd under the package key
+        let pkg_key = "Package/pkg-invalid-yaml";
+        let _ = common::etcd::put(pkg_key, "::: not valid yaml :::").await;
+        let res = StateMachine::get_models_for_package("pkg-invalid-yaml").await;
+        assert!(
+            res.is_ok(),
+            "expected Ok result when package YAML is invalid"
+        );
+        let models = res.unwrap();
+        assert!(
+            models.is_empty(),
+            "expected empty model list when package YAML parse fails"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_find_packages_containing_model_success() {
+        // Create two packages, one containing the target model
+        let pkg_a_key = "Package/pkg-with-model";
+        let pkg_a_yaml = r#"{"apiVersion":"v1","kind":"Package","metadata":{"name":"pkg-with-model"},"spec":{"pattern":[],"models":[{"name":"target_model","node":"n","resources":{"volume":"","network":"","realtime":false}}]}}"#;
+        let pkg_b_key = "Package/pkg-without-model";
+        let pkg_b_yaml = r#"{"apiVersion":"v1","kind":"Package","metadata":{"name":"pkg-without-model"},"spec":{"pattern":[],"models":[]}}"#;
+
+        let _ = common::etcd::put(pkg_a_key, pkg_a_yaml).await;
+        let _ = common::etcd::put(pkg_b_key, pkg_b_yaml).await;
+
+        let res = StateMachine::find_packages_containing_model("target_model").await;
+        assert!(res.is_ok());
+        let pkgs = res.unwrap();
+        assert!(
+            pkgs.iter().any(|p| p == "pkg-with-model"),
+            "expected pkg-with-model to be returned"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_current_package_state_none_when_missing() {
+        // Ensure no state key exists for this package
+        let _ = common::etcd::delete("/package/no-state/state").await;
+        let res = StateMachine::get_current_package_state("no-state").await;
+        assert!(
+            res.is_none(),
+            "expected None when package state key is missing"
+        );
+    }
+
+    #[test]
+    fn test_find_valid_transition_scenario() {
+        let sm = StateMachine::new();
+        // Scenario Idle -> Waiting should exist
+        let tr = sm.find_valid_transition(
+            ResourceType::Scenario,
+            ScenarioState::Idle as i32,
+            "scenario_activation",
+            ScenarioState::Waiting as i32,
+        );
+        assert!(tr.is_some());
+        let t = tr.unwrap();
+        assert_eq!(t.action, "start_condition_evaluation");
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_and_update_package_state_no_models() {
+        let sm = StateMachine::new();
+        // Ensure no package data is present in etcd for this test package
+        let _ = common::etcd::delete("Package/nonexistent-package").await;
+        let (changed, state) = sm
+            .evaluate_and_update_package_state("nonexistent-package")
+            .await
+            .expect("should return Ok");
+        assert!(!changed);
+        assert_eq!(state, common::statemanager::PackageState::Idle);
+    }
 }

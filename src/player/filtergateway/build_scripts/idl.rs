@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 // Module for IDL parsing
 use crate::build_scripts::types::DdsData;
 use std::fs;

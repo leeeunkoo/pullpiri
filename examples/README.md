@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # Run Pullpiri (a.k.a. Piccolo) examples
 
 This document is for LG's internal reference and will be updated separately

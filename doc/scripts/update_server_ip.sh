@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+# SPDX-License-Identifier: Apache-2.0
 # settings.yaml 파일에서 IP를 추출하여 YAML 파일의 $(HOST_IP) 패턴을 대체하는 스크립트
 
 # 입력 및 출력 파일 경로
