@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-//! Running gRPC message sending to pharos
-use common::external::{
+//! Running gRPC message sending to timpani
+use common::external::timpani::{
     connect_timpani_server, sched_info_service_client::SchedInfoServiceClient, Response, SchedInfo,
     SchedPolicy, TaskInfo,
 };

@@ -5,7 +5,7 @@
 
 syntax = "proto3";
 
-package nodeagent;
+package fromactioncontroller;
 
 service NodeAgentConnection {
   rpc HandleYaml(HandleYamlRequest) returns (HandleYamlResponse);

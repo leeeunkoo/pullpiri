@@ -2,8 +2,8 @@
 * SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
 * SPDX-License-Identifier: Apache-2.0
 */
-use common::nodeagent::node_agent_connection_server::NodeAgentConnection;
-use common::nodeagent::{
+use common::nodeagent::fromapiserver::node_agent_connection_server::NodeAgentConnection;
+use common::nodeagent::fromapiserver::{
     ConfigRequest, ConfigResponse, HandleYamlRequest, HandleYamlResponse, HeartbeatRequest,
     HeartbeatResponse, NodeRegistrationRequest, NodeRegistrationResponse, StatusAck, StatusReport,
 };
@@ -77,7 +77,7 @@ impl NodeAgentConnection for NodeAgentReceiver {
             success: true,
             message: "Node registration processed".to_string(),
             cluster_token: "node-token".to_string(),
-            cluster_config: Some(common::nodeagent::ClusterConfig {
+            cluster_config: Some(common::nodeagent::fromapiserver::ClusterConfig {
                 master_endpoint: format!("http://{}:47098", master_ip),
                 heartbeat_interval: 30,
                 settings: std::collections::HashMap::new(),
@@ -122,7 +122,7 @@ impl NodeAgentConnection for NodeAgentReceiver {
 
         let response = HeartbeatResponse {
             ack: true,
-            updated_config: Some(common::nodeagent::ClusterConfig {
+            updated_config: Some(common::nodeagent::fromapiserver::ClusterConfig {
                 master_endpoint: format!("http://{}:47098", master_ip),
                 heartbeat_interval: 30,
                 settings: std::collections::HashMap::new(),
@@ -155,7 +155,7 @@ impl NodeAgentConnection for NodeAgentReceiver {
 #[cfg(test)]
 mod tests {
     use crate::grpc::receiver::{NodeAgentConnection, NodeAgentReceiver};
-    use common::nodeagent::{
+    use common::nodeagent::fromapiserver::{
         ClusterConfig, ConfigRequest, ConfigResponse, HandleYamlRequest, HandleYamlResponse,
         HeartbeatRequest, HeartbeatResponse, NodeRegistrationRequest, NodeRegistrationResponse,
         StatusAck, StatusReport,

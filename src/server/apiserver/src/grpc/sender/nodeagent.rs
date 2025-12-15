@@ -2,7 +2,7 @@
 * SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
 * SPDX-License-Identifier: Apache-2.0
 */
-use common::nodeagent::{
+use common::nodeagent::fromapiserver::{
     node_agent_connection_client::NodeAgentConnectionClient, HandleYamlRequest, HandleYamlResponse,
 };
 use tonic::{Request, Response, Status};
@@ -130,7 +130,7 @@ pub async fn send_guest(
 mod tests {
     use super::*;
     use common::apiserver::NodeInfo;
-    use common::nodeagent::{NodeRole, NodeStatus, NodeType, ResourceInfo};
+    use common::nodeagent::fromapiserver::{NodeRole, NodeStatus, NodeType, ResourceInfo};
     use std::collections::HashMap;
     use tokio;
     use tonic::Code;

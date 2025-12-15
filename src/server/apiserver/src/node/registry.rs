@@ -87,7 +87,7 @@ impl NodeRegistry {
 mod tests {
     use super::*;
     use common::apiserver::NodeInfo;
-    use common::nodeagent::{NodeRole, NodeStatus, NodeType, ResourceInfo};
+    use common::nodeagent::fromapiserver::{NodeRole, NodeStatus, NodeType, ResourceInfo};
     use std::collections::HashMap;
 
     fn create_test_node_info(

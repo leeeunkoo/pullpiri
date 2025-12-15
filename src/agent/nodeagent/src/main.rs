@@ -8,8 +8,7 @@
 //! and launches both concurrently. It also provides unit tests for initialization.
 
 use clap::Parser;
-use common::nodeagent::HandleYamlRequest;
-use common::nodeagent::NodeRegistrationRequest;
+use common::nodeagent::fromapiserver::{HandleYamlRequest, NodeRegistrationRequest};
 use std::path::PathBuf;
 mod bluechi;
 pub mod config;
@@ -17,7 +16,7 @@ pub mod grpc;
 pub mod manager;
 pub mod resource;
 
-use common::nodeagent::node_agent_connection_server::NodeAgentConnectionServer;
+use common::nodeagent::fromapiserver::node_agent_connection_server::NodeAgentConnectionServer;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 /// Launches the NodeAgentManager in an asynchronous task.
@@ -75,7 +74,7 @@ async fn launch_manager(
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3));
                 loop {
                     interval.tick().await;
-                    let heartbeat_request = common::nodeagent::HeartbeatRequest {
+                    let heartbeat_request = common::nodeagent::fromapiserver::HeartbeatRequest {
                         node_id: node_id_clone.clone(),
                         timestamp: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -213,7 +212,7 @@ fn main() {
 mod tests {
     use crate::config::Config;
     use crate::{initialize, launch_manager};
-    use common::nodeagent::{HandleYamlRequest, NodeRegistrationRequest};
+    use common::nodeagent::fromapiserver::{HandleYamlRequest, NodeRegistrationRequest};
     use std::collections::HashMap;
     use std::path::PathBuf;
     use tokio::sync::mpsc::{channel, Receiver, Sender};

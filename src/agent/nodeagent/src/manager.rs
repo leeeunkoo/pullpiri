@@ -9,7 +9,7 @@
 //! It is designed to be thread-safe and run in an async context.
 use crate::grpc::sender::NodeAgentSender;
 use common::monitoringserver::{ContainerInfo, ContainerList};
-use common::nodeagent::HandleYamlRequest;
+use common::nodeagent::fromapiserver::HandleYamlRequest;
 use common::Result;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
@@ -269,7 +269,7 @@ spec:
 "#;
     use crate::manager::NodeAgentManager;
     use common::monitoringserver::{ContainerInfo, ContainerList, NodeInfo};
-    use common::nodeagent::HandleYamlRequest;
+    use common::nodeagent::fromapiserver::HandleYamlRequest;
     use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::mpsc;
