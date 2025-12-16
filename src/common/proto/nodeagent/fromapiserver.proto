@@ -5,7 +5,7 @@
 
 syntax = "proto3";
 
-package fromapiserver;
+package nodeagent.fromapiserver;
 
 service NodeAgentConnection {
   rpc HandleYaml(HandleYamlRequest) returns (HandleYamlResponse);

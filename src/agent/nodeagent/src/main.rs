@@ -16,7 +16,7 @@ pub mod grpc;
 pub mod manager;
 pub mod resource;
 
-use common::nodeagent::fromapiserver::node_agent_connection_server::NodeAgentConnectionServer;
+use common::nodeagent::node_agent_connection_server::NodeAgentConnectionServer;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 /// Launches the NodeAgentManager in an asynchronous task.

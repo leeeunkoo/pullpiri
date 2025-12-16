@@ -87,15 +87,14 @@ pub mod monitoringserver {
     }
 }
 
-// re-export nested module at crate root level for generated code
-pub use nodeagent::{fromactioncontroller, fromapiserver};
 pub mod nodeagent {
+    include!("generated/nodeagent.rs");
     pub mod fromactioncontroller {
-        include!("generated/fromactioncontroller.rs");
+        include!("generated/nodeagent.fromactioncontroller.rs");
     }
 
     pub mod fromapiserver {
-        include!("generated/fromapiserver.rs");
+        include!("generated/nodeagent.fromapiserver.rs");
     }
 }
 

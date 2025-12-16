@@ -2,7 +2,6 @@
 * SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
 * SPDX-License-Identifier: Apache-2.0
 */
-use common::nodeagent::fromapiserver::node_agent_connection_server::NodeAgentConnection;
 use common::nodeagent::fromapiserver::{
     ConfigRequest, ConfigResponse, HandleYamlRequest, HandleYamlResponse, HeartbeatRequest,
     HeartbeatResponse, NodeRegistrationRequest, NodeRegistrationResponse, StatusAck, StatusReport,
@@ -10,151 +9,119 @@ use common::nodeagent::fromapiserver::{
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 
-/// NodeAgent gRPC service handler
-#[derive(Clone)]
-pub struct NodeAgentReceiver {
-    pub tx: mpsc::Sender<HandleYamlRequest>,
-    // Add node information for clustering
-    pub node_id: String,
-    pub hostname: String,
-    pub ip_address: String,
-}
+/// Handle a yaml request from API-Server
+///
+/// Receives a yaml from API-Server and forwards it to the NodeAgent manager for processing.
+pub async fn handle_yaml(
+    tx: mpsc::Sender<HandleYamlRequest>,
+    request: Request<HandleYamlRequest>,
+) -> Result<Response<HandleYamlResponse>, Status> {
+    println!("Got a Yamlrequest from api-server");
+    let req: HandleYamlRequest = request.into_inner();
 
-impl NodeAgentReceiver {
-    pub fn new(
-        tx: mpsc::Sender<HandleYamlRequest>,
-        node_id: String,
-        hostname: String,
-        ip_address: String,
-    ) -> Self {
-        Self {
-            tx,
-            node_id,
-            hostname,
-            ip_address,
-        }
+    match tx.send(req).await {
+        Ok(_) => Ok(tonic::Response::new(HandleYamlResponse {
+            status: true,
+            desc: "Successfully processed YAML".to_string(),
+        })),
+        Err(e) => Err(tonic::Status::new(
+            tonic::Code::Unavailable,
+            format!("cannot send condition: {}", e),
+        )),
     }
 }
 
-#[tonic::async_trait]
-impl NodeAgentConnection for NodeAgentReceiver {
-    /// Handle a yaml request from API-Server
-    ///
-    /// Receives a yaml from API-Server and forwards it to the NodeAgent manager for processing.
-    async fn handle_yaml(
-        &self,
-        request: Request<HandleYamlRequest>,
-    ) -> Result<Response<HandleYamlResponse>, Status> {
-        println!("Got a Yamlrequest from api-server");
-        let req: HandleYamlRequest = request.into_inner();
+/// Register this node with the API server
+pub async fn register_node(
+    request: Request<NodeRegistrationRequest>,
+) -> Result<Response<NodeRegistrationResponse>, Status> {
+    println!("Processing RegisterNode request");
+    let _req = request.into_inner();
 
-        match self.tx.send(req).await {
-            Ok(_) => Ok(tonic::Response::new(HandleYamlResponse {
-                status: true,
-                desc: "Successfully processed YAML".to_string(),
-            })),
-            Err(e) => Err(tonic::Status::new(
-                tonic::Code::Unavailable,
-                format!("cannot send condition: {}", e),
-            )),
-        }
-    }
+    // TODO: Implement node registration logic
+    // This is typically called by the master node, not the node itself
+    let config = crate::config::Config::get();
+    let master_ip = config.nodeagent.master_ip.clone();
 
-    /// Register this node with the API server
-    async fn register_node(
-        &self,
-        request: Request<NodeRegistrationRequest>,
-    ) -> Result<Response<NodeRegistrationResponse>, Status> {
-        println!("Processing RegisterNode request");
-        let _req = request.into_inner();
+    let response = NodeRegistrationResponse {
+        success: true,
+        message: "Node registration processed".to_string(),
+        cluster_token: "node-token".to_string(),
+        cluster_config: Some(common::nodeagent::fromapiserver::ClusterConfig {
+            master_endpoint: format!("http://{}:47098", master_ip),
+            heartbeat_interval: 30,
+            settings: std::collections::HashMap::new(),
+        }),
+    };
 
-        // TODO: Implement node registration logic
-        // This is typically called by the master node, not the node itself
-        let config = crate::config::Config::get();
-        let master_ip = config.nodeagent.master_ip.clone();
-
-        let response = NodeRegistrationResponse {
-            success: true,
-            message: "Node registration processed".to_string(),
-            cluster_token: "node-token".to_string(),
-            cluster_config: Some(common::nodeagent::fromapiserver::ClusterConfig {
-                master_endpoint: format!("http://{}:47098", master_ip),
-                heartbeat_interval: 30,
-                settings: std::collections::HashMap::new(),
-            }),
-        };
-
-        Ok(Response::new(response))
-    }
-
-    /// Report status to the API server
-    async fn report_status(
-        &self,
-        request: Request<StatusReport>,
-    ) -> Result<Response<StatusAck>, Status> {
-        println!("Processing StatusReport request");
-        let req = request.into_inner();
-
-        // TODO: Process status report and update local state
-        println!("Received status from node: {}", req.node_id);
-
-        let response = StatusAck {
-            received: true,
-            message: "Status report received".to_string(),
-        };
-
-        Ok(Response::new(response))
-    }
-
-    /// Process heartbeat from API server
-    async fn heartbeat(
-        &self,
-        request: Request<HeartbeatRequest>,
-    ) -> Result<Response<HeartbeatResponse>, Status> {
-        println!("Processing Heartbeat request");
-        let req = request.into_inner();
-
-        // TODO: Process heartbeat and update last seen time
-        println!("Heartbeat from node: {} at {}", req.node_id, req.timestamp);
-
-        let config = crate::config::Config::get();
-        let master_ip = config.nodeagent.master_ip.clone();
-
-        let response = HeartbeatResponse {
-            ack: true,
-            updated_config: Some(common::nodeagent::fromapiserver::ClusterConfig {
-                master_endpoint: format!("http://{}:47098", master_ip),
-                heartbeat_interval: 30,
-                settings: std::collections::HashMap::new(),
-            }),
-        };
-
-        Ok(Response::new(response))
-    }
-
-    /// Receive configuration updates from API server
-    async fn receive_config(
-        &self,
-        request: Request<ConfigRequest>,
-    ) -> Result<Response<ConfigResponse>, Status> {
-        println!("Processing ReceiveConfig request");
-        let req = request.into_inner();
-
-        // TODO: Apply configuration changes
-        println!("Received config with {} settings", req.config.len());
-
-        let response = ConfigResponse {
-            applied: true,
-            message: "Configuration applied successfully".to_string(),
-        };
-
-        Ok(Response::new(response))
-    }
+    Ok(Response::new(response))
 }
 
+/// Report status to the API server
+pub async fn report_status(
+    request: Request<StatusReport>,
+) -> Result<Response<StatusAck>, Status> {
+    println!("Processing StatusReport request");
+    let req = request.into_inner();
+
+    // TODO: Process status report and update local state
+    println!("Received status from node: {}", req.node_id);
+
+    let response = StatusAck {
+        received: true,
+        message: "Status report received".to_string(),
+    };
+
+    Ok(Response::new(response))
+}
+
+/// Process heartbeat from API server
+pub async fn heartbeat(
+    request: Request<HeartbeatRequest>,
+) -> Result<Response<HeartbeatResponse>, Status> {
+    println!("Processing Heartbeat request");
+    let req = request.into_inner();
+
+    // TODO: Process heartbeat and update last seen time
+    println!("Heartbeat from node: {} at {}", req.node_id, req.timestamp);
+
+    let config = crate::config::Config::get();
+    let master_ip = config.nodeagent.master_ip.clone();
+
+    let response = HeartbeatResponse {
+        ack: true,
+        updated_config: Some(common::nodeagent::fromapiserver::ClusterConfig {
+            master_endpoint: format!("http://{}:47098", master_ip),
+            heartbeat_interval: 30,
+            settings: std::collections::HashMap::new(),
+        }),
+    };
+
+    Ok(Response::new(response))
+}
+
+/// Receive configuration updates from API server
+pub async fn receive_config(
+    request: Request<ConfigRequest>,
+) -> Result<Response<ConfigResponse>, Status> {
+    println!("Processing ReceiveConfig request");
+    let req = request.into_inner();
+
+    // TODO: Apply configuration changes
+    println!("Received config with {} settings", req.config.len());
+
+    let response = ConfigResponse {
+        applied: true,
+        message: "Configuration applied successfully".to_string(),
+    };
+
+    Ok(Response::new(response))
+}
+
+/*
 #[cfg(test)]
 mod tests {
-    use crate::grpc::receiver::{NodeAgentConnection, NodeAgentReceiver};
+    use crate::grpc::receiver::apiserver::{NodeAgentConnection, NodeAgentReceiver};
     use common::nodeagent::fromapiserver::{
         ClusterConfig, ConfigRequest, ConfigResponse, HandleYamlRequest, HandleYamlResponse,
         HeartbeatRequest, HeartbeatResponse, NodeRegistrationRequest, NodeRegistrationResponse,
@@ -372,3 +339,4 @@ spec:
         assert_eq!(response.message, "Configuration applied successfully");
     }
 }
+*/
