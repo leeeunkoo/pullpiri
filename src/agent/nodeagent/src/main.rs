@@ -10,11 +10,11 @@
 use clap::Parser;
 use common::nodeagent::fromapiserver::{HandleYamlRequest, NodeRegistrationRequest};
 use std::path::PathBuf;
-mod bluechi;
 pub mod config;
 pub mod grpc;
 pub mod manager;
 pub mod resource;
+pub mod runtime;
 
 use common::nodeagent::node_agent_connection_server::NodeAgentConnectionServer;
 use tokio::sync::mpsc::{channel, Receiver, Sender};

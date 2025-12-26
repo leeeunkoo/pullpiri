@@ -1,14 +1,19 @@
-pub mod actioncontroller;
-pub mod apiserver;
-
 /*
 * SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
 * SPDX-License-Identifier: Apache-2.0
 */
+
+pub mod actioncontroller;
+pub mod apiserver;
+
 use common::nodeagent::node_agent_connection_server::NodeAgentConnection;
-use common::nodeagent::fromapiserver::{
-    ConfigRequest, ConfigResponse, HandleYamlRequest, HandleYamlResponse, HeartbeatRequest,
-    HeartbeatResponse, NodeRegistrationRequest, NodeRegistrationResponse, StatusAck, StatusReport,
+use common::nodeagent::{
+    fromactioncontroller::{HandleWorkloadRequest, HandleWorkloadResponse},
+    fromapiserver::{
+        ConfigRequest, ConfigResponse, HandleYamlRequest, HandleYamlResponse, HeartbeatRequest,
+        HeartbeatResponse, NodeRegistrationRequest, NodeRegistrationResponse, StatusAck,
+        StatusReport,
+    },
 };
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
@@ -85,9 +90,9 @@ impl NodeAgentConnection for NodeAgentReceiver {
 
     async fn handle_workload(
         &self,
-        _request: Request<common::nodeagent::fromactioncontroller::HandleWorkloadRequest>,
-    ) -> Result<Response<common::nodeagent::fromactioncontroller::HandleWorkloadResponse>, Status> {
-        unimplemented!()
+        request: Request<HandleWorkloadRequest>,
+    ) -> Result<Response<HandleWorkloadResponse>, Status> {
+        actioncontroller::handle_workload(request).await
     }
 }
 

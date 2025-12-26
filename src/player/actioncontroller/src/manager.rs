@@ -4,8 +4,8 @@
 */
 use std::{thread, time::Duration};
 
+use crate::grpc::sender::pharos::request_network_pod;
 use crate::grpc::sender::statemanager::StateManagerSender;
-use crate::{grpc::sender::pharos::request_network_pod, runtime::bluechi};
 use common::{
     actioncontroller::PodStatus as Status,
     spec::artifact::{Model, Package, Scenario},
@@ -19,11 +19,9 @@ use common::{
 /// Responsible for:
 /// - Processing scenario requests from gRPC receivers
 /// - Determining appropriate actions based on scenario definitions
-/// - Delegating workload operations to the appropriate runtime (Bluechi or NodeAgent)
+/// - Delegating workload operations to the appropriate runtime (NodeAgent)
 /// - Handling state reconciliation for scenario workloads
 pub struct ActionControllerManager {
-    /// List of nodes managed by Bluechi
-    pub bluechi_nodes: Vec<String>,
     /// List of nodes managed by NodeAgent
     pub nodeagent_nodes: Vec<String>,
     /// StateManager sender for scenario state changes
@@ -44,7 +42,6 @@ impl ActionControllerManager {
         // 초기화 단계에서는 빈 노드 목록으로 시작
         // 실제 노드 정보는 trigger_manager_action에서 etcd로부터 가져옴
         Self {
-            bluechi_nodes: Vec::new(),
             nodeagent_nodes: Vec::new(),
             state_sender: StateManagerSender::new(),
         }
@@ -52,7 +49,7 @@ impl ActionControllerManager {
 
     /// Fetches node role information from etcd
     ///
-    /// Retrieves node information from etcd to determine if it is a bluechi or nodeagent node.
+    /// Retrieves node information from etcd to determine if it is a nodeagent node.
     ///
     /// # Arguments
     ///
@@ -60,7 +57,7 @@ impl ActionControllerManager {
     ///
     /// # Returns
     ///
-    /// * `Ok(String)` with node role ("bluechi" or "nodeagent") if found
+    /// * `Ok(String)` with node role ("nodeagent") if found
     /// * `Err(...)` if the node could not be found or role determined
     async fn get_node_role_from_etcd(&self, node_name: &str) -> Result<String> {
         // 1. 먼저 nodes/{hostname} 키에서 노드 IP 조회
@@ -98,12 +95,7 @@ impl ActionControllerManager {
                 if config.host.name == node_name {
                     println!("Using role from settings.yaml for node '{}'", node_name);
                     // settings.yaml의 type 값에 따라 노드 역할 결정
-                    let role = if config.host.r#type == "bluechi" {
-                        "bluechi"
-                    } else {
-                        "nodeagent"
-                    };
-                    return Ok(role.to_string());
+                    return Ok("nodeagent".to_string());
                 } else {
                     return Err(format!("No details found for node '{}'", node_name).into());
                 }
@@ -113,10 +105,8 @@ impl ActionControllerManager {
         // 3. json 파싱
         let node_info: common::apiserver::NodeInfo = serde_json::from_str(&node_json)?;
 
-        // 4. node_role 값에 따라 노드 유형 결정 (node_role: 3 = Bluechi, 2 = Nodeagent)
-        let role = if node_info.node_role == 3 {
-            "bluechi".to_string()
-        } else if node_info.node_role == 2 {
+        // 4. node_role 값에 따라 노드 유형 결정 (node_role: 2 = Nodeagent)
+        let role = if node_info.node_role == 2 {
             "nodeagent".to_string()
         } else {
             return Err(format!("Unknown node role: {}", node_info.node_role).into());
@@ -204,14 +194,7 @@ impl ActionControllerManager {
                             "Warning: Failed to get role for node '{}' from etcd: {}",
                             model_node, e
                         );
-                        // etcd에서 정보를 찾을 수 없으면 설정 파일 정보 확인
-                        if self.bluechi_nodes.contains(&model_node) {
-                            node_roles.insert(model_node.clone(), "bluechi".to_string());
-                            println!(
-                                "Node {} found in bluechi_nodes from cached list",
-                                model_node
-                            );
-                        } else if self.nodeagent_nodes.contains(&model_node) {
+                        if self.nodeagent_nodes.contains(&model_node) {
                             node_roles.insert(model_node.clone(), "nodeagent".to_string());
                             println!(
                                 "Node {} found in nodeagent_nodes from cached list",
@@ -243,7 +226,6 @@ impl ActionControllerManager {
             );
             match action.as_str() {
                 "launch" => {
-                    self.reload_all_node(&model_name, &model_node).await?;
                     self.start_workload(&model_name, &model_node, node_type)
                         .await
                         .map_err(|e| format!("Failed to start workload '{}': {}", model_name, e))?;
@@ -262,21 +244,14 @@ impl ActionControllerManager {
                     }
                 }
                 "terminate" => {
-                    self.reload_all_node(&model_name, &model_node).await?;
                     self.stop_workload(&model_name, &model_node, node_type)
                         .await
                         .map_err(|e| format!("Failed to stop workload '{}': {}", model_name, e))?;
                 }
                 "update" | "rollback" => {
-                    self.reload_all_node(&model_name, &model_node).await?;
-                    self.stop_workload(&model_name, &model_node, node_type)
+                    self.restart_workload(&model_name, &model_node, node_type)
                         .await
                         .map_err(|e| format!("Failed to stop workload '{}': {}", model_name, e))?;
-
-                    self.reload_all_node(&model_name, &model_node).await?;
-                    self.start_workload(&model_name, &model_node, node_type)
-                        .await
-                        .map_err(|e| format!("Failed to start workload '{}': {}", model_name, e))?;
 
                     // If pod need realtime feature, send sched info to timpani
                     if mi.get_resources().get_realtime().unwrap_or(false) {
@@ -415,9 +390,7 @@ impl ActionControllerManager {
         for mi in package.get_models() {
             let model_name = format!("{}.service", mi.get_name());
             let model_node = mi.get_node();
-            let node_type = if self.bluechi_nodes.contains(&model_node) {
-                "bluechi"
-            } else if self.nodeagent_nodes.contains(&model_node) {
+            let node_type = if self.nodeagent_nodes.contains(&model_node) {
                 "nodeagent"
             } else {
                 // Log warning for unknown node types and skip processing
@@ -500,9 +473,24 @@ impl ActionControllerManager {
     /// - The scenario does not exist
     /// - The workload does not exist
     /// - The runtime operation fails
-    #[allow(unused_variables)]
-    pub async fn restart_workload(&self, scenario_name: String) -> Result<()> {
-        // TODO: Implementation
+    pub async fn restart_workload(
+        &self,
+        model_name: &str,
+        node_name: &str,
+        node_type: &str,
+    ) -> Result<()> {
+        match node_type {
+            "nodeagent" => {
+                crate::runtime::nodeagent::restart_workload(model_name, node_name).await?;
+            }
+            _ => {
+                return Err(format!(
+                    "Unsupported node type '{}' for workload '{}' on node '{}'",
+                    node_type, model_name, node_name
+                )
+                .into());
+            }
+        }
         Ok(())
     }
 
@@ -555,15 +543,8 @@ impl ActionControllerManager {
         node_type: &str,
     ) -> Result<()> {
         match node_type {
-            "bluechi" => {
-                let cmd = bluechi::BluechiCmd {
-                    command: bluechi::Command::UnitStart,
-                };
-                bluechi::handle_bluechi_cmd(model_name, node_name, cmd).await?;
-            }
             "nodeagent" => {
-                // let runtime = crate::runtime::nodeagent::NodeAgentRuntime::new();
-                // runtime.start_workload(model_name).await?;
+                crate::runtime::nodeagent::start_workload(model_name, node_name).await?;
             }
             _ => {
                 return Err(format!(
@@ -601,15 +582,8 @@ impl ActionControllerManager {
         node_type: &str,
     ) -> Result<()> {
         match node_type {
-            "bluechi" => {
-                let cmd = bluechi::BluechiCmd {
-                    command: bluechi::Command::UnitStop,
-                };
-                bluechi::handle_bluechi_cmd(model_name, node_name, cmd).await?;
-            }
             "nodeagent" => {
-                // let runtime = crate::runtime::nodeagent::NodeAgentRuntime::new();
-                // runtime.start_workload(model_name).await?;
+                crate::runtime::nodeagent::stop_workload(model_name, node_name).await?;
             }
             _ => {
                 return Err(format!(
@@ -623,10 +597,6 @@ impl ActionControllerManager {
     }
 
     pub async fn reload_all_node(&self, model_name: &str, model_node: &str) -> Result<()> {
-        let cmd = bluechi::BluechiCmd {
-            command: bluechi::Command::ControllerReloadAllNodes,
-        };
-        bluechi::handle_bluechi_cmd(model_name, model_node, cmd).await?;
         thread::sleep(Duration::from_millis(100));
         Ok(())
     }
@@ -843,14 +813,12 @@ spec:
         .unwrap();
 
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
 
         let result = manager.trigger_manager_action("launch-test").await;
 
-        // Should succeed or fail gracefully based on bluechi availability
         assert!(result.is_ok() || result.is_err());
 
         // Cleanup
@@ -895,7 +863,6 @@ spec:
         .unwrap();
 
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
@@ -948,7 +915,6 @@ spec:
         .unwrap();
 
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
@@ -998,7 +964,6 @@ spec:
         .unwrap();
 
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
@@ -1049,7 +1014,6 @@ spec:
         .unwrap();
 
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
@@ -1104,7 +1068,6 @@ spec:
         .unwrap();
 
         let manager = ActionControllerManager {
-            bluechi_nodes: vec![],
             nodeagent_nodes: vec!["ZONE".to_string()],
             state_sender: StateManagerSender::new(),
         };
@@ -1173,25 +1136,8 @@ spec:
     // ==================== start_workload Tests ====================
 
     #[tokio::test]
-    async fn test_start_workload_bluechi_node() {
-        let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
-            nodeagent_nodes: vec![],
-            state_sender: StateManagerSender::new(),
-        };
-
-        let result = manager
-            .start_workload("test-service", "HPC", "bluechi")
-            .await;
-
-        // Result depends on bluechi availability
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
     async fn test_start_workload_nodeagent_node() {
         let manager = ActionControllerManager {
-            bluechi_nodes: vec![],
             nodeagent_nodes: vec!["ZONE".to_string()],
             state_sender: StateManagerSender::new(),
         };
@@ -1218,24 +1164,8 @@ spec:
     }
 
     #[tokio::test]
-    async fn test_stop_workload_bluechi_node() {
-        let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
-            nodeagent_nodes: vec![],
-            state_sender: StateManagerSender::new(),
-        };
-
-        let result = manager
-            .stop_workload("test-service", "HPC", "bluechi")
-            .await;
-
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
     async fn test_stop_workload_nodeagent_node() {
         let manager = ActionControllerManager {
-            bluechi_nodes: vec![],
             nodeagent_nodes: vec!["ZONE".to_string()],
             state_sender: StateManagerSender::new(),
         };
@@ -1262,14 +1192,12 @@ spec:
         let manager = ActionControllerManager::new();
         let result = manager.reload_all_node("test-service", "HPC").await;
 
-        // Result depends on bluechi availability
         assert!(result.is_ok() || result.is_err());
     }
 
     #[tokio::test]
     async fn test_reconcile_do_with_valid_status() {
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
@@ -1320,7 +1248,6 @@ spec:
         .unwrap();
 
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
@@ -1346,7 +1273,6 @@ spec:
     #[tokio::test]
     async fn test_trigger_manager_action_invalid_scenario() {
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
@@ -1358,7 +1284,6 @@ spec:
     #[tokio::test]
     async fn test_reconcile_do_invalid_scenario_key() {
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
@@ -1372,7 +1297,6 @@ spec:
     #[tokio::test]
     async fn test_start_workload_invalid_node_type_legacy() {
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
@@ -1386,7 +1310,6 @@ spec:
     #[tokio::test]
     async fn test_stop_workload_invalid_node_type_legacy() {
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
@@ -1401,34 +1324,28 @@ spec:
     #[test]
     fn test_manager_initializes_with_empty_nodes() {
         let manager = ActionControllerManager::new();
-        assert!(manager.bluechi_nodes.is_empty());
         assert!(manager.nodeagent_nodes.is_empty());
     }
 
     #[tokio::test]
     async fn test_create_delete_restart_pause_are_noops() {
         let manager = ActionControllerManager {
-            bluechi_nodes: vec![],
             nodeagent_nodes: vec![],
             state_sender: StateManagerSender::new(),
         };
 
         assert!(manager.create_workload("test".into()).await.is_ok());
         assert!(manager.delete_workload("test".into()).await.is_ok());
-        assert!(manager.restart_workload("test".into()).await.is_ok());
         assert!(manager.pause_workload("test".into()).await.is_ok());
     }
 
     #[test]
     fn test_unknown_nodes_skipped() {
         let manager = ActionControllerManager {
-            bluechi_nodes: vec!["HPC".to_string()],
             nodeagent_nodes: vec!["ZONE".to_string()],
             state_sender: StateManagerSender::new(),
         };
 
-        assert!(manager.bluechi_nodes.contains(&"HPC".to_string()));
         assert!(manager.nodeagent_nodes.contains(&"ZONE".to_string()));
-        assert!(!manager.bluechi_nodes.contains(&"cloud".to_string()));
     }
 }

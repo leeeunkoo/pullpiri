@@ -50,16 +50,15 @@ install: setup-shared-rocksdb
 	-cp -r ./doc/scripts/version.txt /etc/containers/systemd/piccolo/
 	-cp -r ./doc/scripts/update_server_ip.sh /etc/containers/systemd/piccolo/
 	-cp -r ./containers/piccolo-*.* /etc/containers/systemd/piccolo/
-	systemctl daemon-reload
-	systemctl restart piccolo-server
-	systemctl restart piccolo-player
+	-./containers/piccolo-server.sh dev
+	-./containers/piccolo-player.sh dev
 
 .PHONY: uninstall
 uninstall:
-	-systemctl stop piccolo-player
-	-systemctl stop piccolo-server
-	-systemctl stop nodeagent
-	systemctl daemon-reload
+	-podman pod stop -t 0 piccolo-player
+	-podman pod rm piccolo-player
+	-podman pod stop -t 0 piccolo-server
+	-podman pod rm piccolo-server
 	-rm -rf /etc/piccolo/yaml
 	-rm -rf /etc/containers/systemd/*
 	-rm -rf /tmp/pullpiri_shared_rocksdb

@@ -61,7 +61,7 @@ impl NodeAgentManager {
         let mut rx_grpc: tokio::sync::MutexGuard<'_, mpsc::Receiver<HandleYamlRequest>> =
             arc_rx_grpc.lock().await;
         while let Some(yaml_data) = rx_grpc.recv().await {
-            crate::bluechi::parse(yaml_data.yaml, self.hostname.clone()).await?;
+            crate::runtime::bluechi::parse(yaml_data.yaml, self.hostname.clone()).await?;
         }
 
         Ok(())

@@ -89,8 +89,13 @@ pub mod monitoringserver {
 
 pub mod nodeagent {
     include!("generated/nodeagent.rs");
+
     pub mod fromactioncontroller {
         include!("generated/nodeagent.fromactioncontroller.rs");
+
+        pub fn connect_server(node_ip: &str) -> String {
+            format!("http://{node_ip}:47004")
+        }
     }
 
     pub mod fromapiserver {

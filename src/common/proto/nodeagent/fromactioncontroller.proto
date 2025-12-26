@@ -13,8 +13,7 @@ service HandleWorkloadConnection {
 
 message HandleWorkloadRequest {
   WorkloadCommand workload_command = 1;
-  string workload_name = 2;
-  string model_name = 3;
+  string model_name = 2;
 }
 
 message HandleWorkloadResponse {

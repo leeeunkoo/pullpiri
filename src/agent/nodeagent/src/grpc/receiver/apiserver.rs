@@ -58,9 +58,7 @@ pub async fn register_node(
 }
 
 /// Report status to the API server
-pub async fn report_status(
-    request: Request<StatusReport>,
-) -> Result<Response<StatusAck>, Status> {
+pub async fn report_status(request: Request<StatusReport>) -> Result<Response<StatusAck>, Status> {
     println!("Processing StatusReport request");
     let req = request.into_inner();
 
@@ -118,10 +116,9 @@ pub async fn receive_config(
     Ok(Response::new(response))
 }
 
-/*
 #[cfg(test)]
 mod tests {
-    use crate::grpc::receiver::apiserver::{NodeAgentConnection, NodeAgentReceiver};
+    use crate::grpc::receiver::{NodeAgentConnection, NodeAgentReceiver};
     use common::nodeagent::fromapiserver::{
         ClusterConfig, ConfigRequest, ConfigResponse, HandleYamlRequest, HandleYamlResponse,
         HeartbeatRequest, HeartbeatResponse, NodeRegistrationRequest, NodeRegistrationResponse,
@@ -339,4 +336,3 @@ spec:
         assert_eq!(response.message, "Configuration applied successfully");
     }
 }
-*/
