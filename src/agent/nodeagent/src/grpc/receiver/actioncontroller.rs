@@ -11,6 +11,8 @@ pub async fn handle_workload(
 ) -> Result<Response<HandleWorkloadResponse>, Status> {
     // Implement the logic to handle workload requests from ActionController here.
     // For now, we will just return an unimplemented status.
+    // TODO - Currently, just create a test nginx container for development.
+    //        Need to implement actual workload handling logic.
     match crate::runtime::podman::create_nginx_container("test-nginx-container").await {
         Ok(container_id) => {
             println!("Created container with ID: {}", container_id);

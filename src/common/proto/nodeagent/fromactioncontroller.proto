@@ -7,10 +7,6 @@ syntax = "proto3";
 
 package nodeagent.fromactioncontroller;
 
-service HandleWorkloadConnection {
-  rpc HandleWorkload(HandleWorkloadRequest) returns (HandleWorkloadResponse);
-}
-
 message HandleWorkloadRequest {
   WorkloadCommand workload_command = 1;
   string model_name = 2;

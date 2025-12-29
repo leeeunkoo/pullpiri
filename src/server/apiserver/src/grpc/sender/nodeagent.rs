@@ -2,9 +2,8 @@
 * SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
 * SPDX-License-Identifier: Apache-2.0
 */
-use common::nodeagent::fromapiserver::{
-    node_agent_connection_client::NodeAgentConnectionClient, HandleYamlRequest, HandleYamlResponse,
-};
+use common::nodeagent::fromapiserver::{HandleYamlRequest, HandleYamlResponse};
+use common::nodeagent::node_agent_connection_client::NodeAgentConnectionClient;
 use tonic::{Request, Response, Status};
 
 // Send to a specific node using its IP address

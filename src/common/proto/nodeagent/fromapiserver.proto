@@ -7,16 +7,6 @@ syntax = "proto3";
 
 package nodeagent.fromapiserver;
 
-service NodeAgentConnection {
-  rpc HandleYaml(HandleYamlRequest) returns (HandleYamlResponse);
-  
-  // Clustering functionality
-  rpc RegisterNode(NodeRegistrationRequest) returns (NodeRegistrationResponse);
-  rpc ReportStatus(StatusReport) returns (StatusAck);
-  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
-  rpc ReceiveConfig(ConfigRequest) returns (ConfigResponse);
-}
-
 message HandleYamlRequest {
   string yaml = 1;
 }

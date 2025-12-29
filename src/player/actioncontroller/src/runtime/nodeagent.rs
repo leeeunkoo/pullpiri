@@ -22,14 +22,18 @@ pub async fn handle_workload(
     model_name: &str,
     node_name: &str,
 ) -> Result<()> {
-    // TODO - Get node ip from node_name
-    // let addr = format!("http://{}:50051", node_name);
-    let addr = String::from("127.0.0.1");
+    if let Some(addr) = get_node_name_from_hostname(node_name).await {
+        println!("node_name: {}, addr: {}", node_name, addr);
 
-    let request = HandleWorkloadRequest {
-        workload_command: cmd.into(),
-        model_name: model_name.to_string(),
-    };
+        let request = HandleWorkloadRequest {
+            workload_command: cmd.into(),
+            model_name: model_name.to_string(),
+        };
+        crate::grpc::sender::nodeagent::send_workload_handle_request(&addr, request).await?;
+    } else {
+        println!("Node {} not found in DB", node_name);
+        return Err(format!("Node {} not found in DB", node_name).into());
+    }
 
     Ok(())
 }
@@ -50,6 +54,21 @@ pub async fn restart_workload(model_name: &str, node_name: &str) -> Result<()> {
     let cmd = WorkloadCommand::Restart;
     handle_workload(cmd, model_name, node_name).await?;
     Ok(())
+}
+
+/// Find a node by IP address from simplified node keys
+async fn get_node_name_from_hostname(hostname: &str) -> Option<String> {
+    println!("Checking node keys in etcd...");
+    match common::etcd::get(&format!("nodes/{}", hostname)).await {
+        Ok(ip) => {
+            println!("Found node IP: {}", ip);
+            Some(ip)
+        }
+        Err(e) => {
+            println!("Error checking nodes: {}", e);
+            None
+        }
+    }
 }
 
 //UNIT TEST
