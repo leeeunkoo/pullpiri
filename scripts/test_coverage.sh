@@ -140,7 +140,7 @@ fi
 # === Player ===
 start_service "$ACTIONCONTROLLER_MANIFEST" "actioncontroller"
 start_service "$STATEMANAGER_MANIFEST" "statemanager"
-etcdctl del "" --prefix
+# Note: RocksDB data cleanup handled by service or via gRPC API if needed
 sleep 3
 
 if [[ -f "$PLAYER_MANIFEST" ]]; then

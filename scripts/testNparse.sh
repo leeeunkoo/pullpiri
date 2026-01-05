@@ -129,7 +129,7 @@ cleanup  # Stop background services
 # Step 4: Start `actioncontroller` and `statemanager` before testing `filtergateway`
 start_service "$ACTIONCONTROLLER_MANIFEST" "actioncontroller"
 start_service "$STATEMANAGER_MANIFEST" "statemanager"
-etcdctl del "" --prefix
+# Note: RocksDB data cleanup handled by service or via gRPC API if needed
 sleep 3
 [[ -f "$FILTERGATEWAY_MANIFEST" ]] && run_tests "$FILTERGATEWAY_MANIFEST" "filtergateway" || echo "::warning ::$FILTERGATEWAY_MANIFEST missing."
 cleanup  # Stop actioncontroller

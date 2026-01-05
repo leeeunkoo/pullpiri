@@ -31,6 +31,47 @@ jobs:
       - name: Install project dependencies
         run: ./scripts/installdeps.sh
 
+      # Step 5.5: Setup RocksDB shared storage directory
+      - name: Setup RocksDB storage directory
+        run: |
+          mkdir -p /tmp/pullpiri_shared_rocksdb
+          sudo chown -R $(id -u):$(id -g) /tmp/pullpiri_shared_rocksdb
+          chmod 755 /tmp/pullpiri_shared_rocksdb
+          echo "✅ RocksDB storage directory created at /tmp/pullpiri_shared_rocksdb"
+
+      # Step 5.6: Start RocksDB service container for testing
+      - name: Start RocksDB service container
+        run: |
+          docker run -d \
+            --name rocksdb-test-service \
+            -p 47007:47007 \
+            -v /tmp/pullpiri_shared_rocksdb:/data \
+            -e RUST_LOG=info \
+            ghcr.io/mco-piccolo/pullpiri-rocksdb:v11.18.0 \
+            rocksdbservice --path /data --addr 0.0.0.0 --port 47007
+          echo "✅ RocksDB service container started on port 47007"
+
+      # Step 5.7: Wait for RocksDB service to be ready
+      - name: Wait for RocksDB service to be ready
+        run: |
+          echo "⏳ Waiting for RocksDB service to be ready..."
+          for i in {1..30}; do
+            if docker logs rocksdb-test-service 2>&1 | grep -q "Starting RocksDB service"; then
+              echo "✅ RocksDB service is ready!"
+              docker logs rocksdb-test-service
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ RocksDB service failed to start!"
+              docker logs rocksdb-test-service
+              exit 1
+            fi
+            echo "  Attempt $i/30: Still waiting..."
+            sleep 2
+          done
+          # Set environment variable for subsequent steps
+          echo "ROCKSDB_SERVICE_URL=http://localhost:47007" >> $GITHUB_ENV
+
       # Step 6: Create output folders for reports
       - name: Create reports directory
         run: |
@@ -75,8 +116,10 @@ jobs:
           path: dist/binaries/amd/nodeagent-linux-amd64
 
       # Step 10: Run all Rust unit/integration tests and generate reports
-      # - name: Run tests and generate report
-      #   run: ./scripts/testNparse.sh
+      - name: Run tests and generate report
+        env:
+          ROCKSDB_SERVICE_URL: http://localhost:47007
+        run: ./scripts/testNparse.sh
 
       # Step 11: Linting (clippy)
       - name: Run Clippy (lint)
@@ -92,7 +135,18 @@ jobs:
 
       # Step 14: Run test coverage script
       # - name: Run test coverage script
+      #   env:
+      #     ROCKSDB_SERVICE_URL: http://localhost:47007
       #   run: ./scripts/test_coverage.sh
+
+      # Step 14.5: Cleanup RocksDB service container
+      - name: Stop and remove RocksDB service
+        if: always()
+        run: |
+          echo "🧹 Cleaning up RocksDB service..."
+          docker stop rocksdb-test-service || true
+          docker rm rocksdb-test-service || true
+          echo "✅ RocksDB service cleaned up"
 
       # === Upload All Reports ===
 
