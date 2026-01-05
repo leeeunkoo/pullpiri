@@ -35,8 +35,8 @@ jobs:
       - name: Setup RocksDB storage directory
         run: |
           mkdir -p /tmp/pullpiri_shared_rocksdb
-          sudo chown -R $(id -u):$(id -g) /tmp/pullpiri_shared_rocksdb
-          chmod 755 /tmp/pullpiri_shared_rocksdb
+          # Make directory writable by all users (container needs write access)
+          chmod 777 /tmp/pullpiri_shared_rocksdb
           echo "✅ RocksDB storage directory created at /tmp/pullpiri_shared_rocksdb"
 
       # Step 5.6: Start RocksDB service container for testing
