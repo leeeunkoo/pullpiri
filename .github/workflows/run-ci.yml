@@ -56,7 +56,7 @@ jobs:
         run: |
           echo "⏳ Waiting for RocksDB service to be ready..."
           for i in {1..30}; do
-            if docker logs rocksdb-test-service 2>&1 | grep -q "Starting RocksDB service"; then
+            if docker logs rocksdb-test-service 2>&1 | grep -q "RocksDB gRPC Service starting"; then
               echo "✅ RocksDB service is ready!"
               docker logs rocksdb-test-service
               break
