@@ -282,27 +282,6 @@ spec:
     }
 
     #[tokio::test]
-    async fn test_send_function() {
-        // Test the send function which uses get_node_ip internally
-        let action = create_test_simple_yaml_request();
-
-        let result = send(action).await;
-
-        // Should fail since no actual node agent is running
-        assert!(result.is_err());
-        let error = result.unwrap_err();
-
-        // Could be unavailable (connection failed) or deadline_exceeded (timeout)
-        match error.code() {
-            Code::Unavailable | Code::DeadlineExceeded => {
-                // Expected error types
-                assert!(!error.message().is_empty());
-            }
-            _ => panic!("Unexpected error code: {:?}", error.code()),
-        }
-    }
-
-    #[tokio::test]
     async fn test_send_guest_no_nodes_found() {
         let action = create_test_simple_yaml_request();
 

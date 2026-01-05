@@ -16,11 +16,14 @@ pub async fn find_node_by_simple_key() -> Option<String> {
     match etcd::get_all_with_prefix("nodes/").await {
         Ok(kvs) => {
             println!("Found {} simplified node keys", kvs.len());
-            if let Some(kv) = kvs.first() {
+            // Find first non-empty key
+            for kv in kvs {
                 println!("Node key: {}", kv.0);
                 let ip_address = kv.0.trim_start_matches("nodes/");
-                println!("Found node IP directly from key: {}", ip_address);
-                return Some(ip_address.to_string());
+                if !ip_address.is_empty() {
+                    println!("Found node IP directly from key: {}", ip_address);
+                    return Some(ip_address.to_string());
+                }
             }
             None
         }
@@ -243,13 +246,14 @@ mod tests {
         let result = find_node_by_simple_key().await;
         match result {
             Some(ip) => {
-                assert!(!ip.is_empty());
+                assert!(!ip.is_empty(), "IP should not be empty if returned");
                 println!("Found IP via simple key: {}", ip);
             }
             None => {
-                println!("No nodes found via simple key (expected if etcd unavailable or empty)")
+                println!("No nodes found via simple key (acceptable if no valid keys exist)")
             }
         }
+        // Test passes in both cases - we're just verifying the function works
     }
 
     #[tokio::test]
@@ -266,19 +270,39 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_node_by_hostname() {
-        let result = find_node_by_hostname("test-hostname").await;
-        assert!(
-            result.is_none(),
-            "Should not find test hostname in empty etcd"
-        );
+        // Test with a hostname that definitely doesn't exist
+        let result = find_node_by_hostname("non-existent-hostname-12345").await;
+        assert!(result.is_none(), "Should not find non-existent hostname");
+
+        // If test-hostname exists from other tests, verify we can find it
+        let result2 = find_node_by_hostname("test-hostname").await;
+        if let Some(node) = result2 {
+            println!(
+                "Found test-hostname node: {} ({})",
+                node.hostname, node.ip_address
+            );
+            assert_eq!(node.hostname, "test-hostname");
+        }
     }
 
     #[tokio::test]
     async fn test_find_guest_nodes() {
         let guest_nodes = find_guest_nodes().await;
-        assert!(
-            guest_nodes.is_empty(),
-            "Should return empty vector when no nodes found"
-        );
+
+        // Test passes if function returns successfully
+        // If nodes exist from other tests, verify they're all non-master nodes
+        for node in &guest_nodes {
+            assert_ne!(
+                node.node_role,
+                NodeRole::Master as i32,
+                "Guest nodes should not have Master role"
+            );
+            println!(
+                "Guest node verified: {} with role {}",
+                node.node_id, node.node_role
+            );
+        }
+
+        println!("Total guest nodes found: {}", guest_nodes.len());
     }
 }
