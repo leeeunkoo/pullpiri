@@ -101,7 +101,7 @@ echo \
   https://download.docker.com/linux/ubuntu jammy stable" | \
   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-# Update and install Docker package
+# Update and install Docker packages
 sudo apt-get update -y
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
