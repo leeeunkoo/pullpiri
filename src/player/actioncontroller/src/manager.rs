@@ -180,7 +180,7 @@ impl ActionControllerManager {
         let mut node_roles = std::collections::HashMap::new();
 
         for mi in package.get_models() {
-            let model_name = format!("{}.service", mi.get_name());
+            let model_name = mi.get_name();
             let model_node = mi.get_node();
 
             // 노드 역할 정보가 캐시에 없으면 etcd에서 가져옴

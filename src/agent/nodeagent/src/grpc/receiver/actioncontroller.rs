@@ -3,7 +3,6 @@
 * SPDX-License-Identifier: Apache-2.0
 */
 use common::nodeagent::fromactioncontroller::{HandleWorkloadRequest, HandleWorkloadResponse};
-use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 
 pub async fn handle_workload(
@@ -13,9 +12,10 @@ pub async fn handle_workload(
     // For now, we will just return an unimplemented status.
     // TODO - Currently, just create a test nginx container for development.
     //        Need to implement actual workload handling logic.
-    match crate::runtime::podman::create_nginx_container("test-nginx-container").await {
-        Ok(container_id) => {
-            println!("Created container with ID: {}", container_id);
+    let req = request.into_inner();
+    match crate::runtime::podman::handle_workload(req.workload_command, &req.model_name).await {
+        Ok(_) => {
+            println!("Workload handle {} successfully", req.workload_command.to_string());
             let response = HandleWorkloadResponse {
                 status: true,
                 desc: format!("Container created"),
