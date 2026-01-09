@@ -2,7 +2,8 @@
 * SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
 * SPDX-License-Identifier: Apache-2.0
 */
-use super::{get, Container, ContainerError, ContainerInspect, ContainerStats};
+use super::{Container, ContainerError, ContainerInspect, ContainerStats};
+use crate::runtime::podman::get;
 use common::monitoringserver::ContainerInfo;
 use futures::future::try_join_all;
 use std::collections::HashMap;
@@ -132,7 +133,7 @@ pub async fn inspect(hostname: String) -> std::result::Result<Vec<ContainerInfo>
 }
 
 pub async fn get_list() -> Result<Vec<Container>> {
-    let body = get("/v1.0.0/libpod/containers/json?all=true").await?;
+    let body = get("/v4.0.0/libpod/containers/json?all=true").await?;
 
     let containers: Vec<Container> = serde_json::from_slice(&body)?;
     //println!("get list {:#?}", containers);
@@ -142,7 +143,7 @@ pub async fn get_list() -> Result<Vec<Container>> {
 pub async fn get_inspect(
     id: &str,
 ) -> std::result::Result<ContainerInspect, Box<dyn std::error::Error + Send + Sync>> {
-    let path = &format!("/v1.0.0/libpod/containers/{}/json?all=true", id);
+    let path = &format!("/v4.0.0/libpod/containers/{}/json?all=true", id);
     let body = get(path).await?;
 
     let inspect: ContainerInspect = serde_json::from_slice(&body)?;
@@ -154,7 +155,7 @@ pub async fn get_inspect(
 pub async fn get_stats(
     id: &str,
 ) -> std::result::Result<ContainerStats, Box<dyn std::error::Error + Send + Sync>> {
-    let path = &format!("/v1.0.0/libpod/containers/{}/stats?stream=false", id);
+    let path = &format!("/v4.0.0/libpod/containers/{}/stats?stream=false", id);
     let body = get(path).await?;
 
     let stats: ContainerStats = serde_json::from_slice(&body)?;

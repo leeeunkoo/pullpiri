@@ -5,29 +5,9 @@
 pub mod container;
 pub mod nodeinfo;
 
-use hyper::{Body, Client, Uri};
-use hyperlocal::{UnixConnector, Uri as UnixUri};
 use serde::Deserialize;
 use std::collections::HashMap;
 use thiserror::Error;
-
-async fn get(path: &str) -> Result<hyper::body::Bytes, hyper::Error> {
-    let connector = UnixConnector;
-    let client = Client::builder().build::<_, Body>(connector);
-
-    // Modify this if you want to run without root authorization
-    // or if you have a different socket path.
-    // For example, if you run Podman as root, you might use:
-    // let socket = "/var/run/podman/podman.sock";
-    // Or if you run it as a user, you might use:
-    // let socket = "/run/user/1000/podman/podman.sock
-    let socket = "/var/run/podman/podman.sock";
-    // let socket = "/var/run/podman/podman.sock";
-    let uri: Uri = UnixUri::new(socket, path).into();
-
-    let res = client.get(uri).await?;
-    hyper::body::to_bytes(res).await
-}
 
 /// Node information matching the requested DataCache structure.
 #[derive(Deserialize, Debug)]
@@ -209,7 +189,7 @@ impl fmt::Display for ContainerNetworkStats {
 //Unit tets cases
 #[cfg(test)]
 mod tests {
-    use super::get;
+    use crate::runtime::podman::get;
     use hyper::body::Bytes;
     use hyper::Error;
     use tokio;

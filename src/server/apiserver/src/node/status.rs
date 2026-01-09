@@ -6,7 +6,7 @@
 //! Node status monitoring and management
 
 use common::apiserver::NodeInfo;
-use common::nodeagent::NodeStatus;
+use common::nodeagent::fromapiserver::{NodeRole, NodeStatus};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Node status manager for monitoring cluster health
@@ -52,14 +52,14 @@ impl NodeStatusManager {
 
         let master_nodes = nodes
             .iter()
-            .filter(|node| node.node_role == common::nodeagent::NodeRole::Master as i32)
+            .filter(|node| node.node_role == NodeRole::Master as i32)
             .count();
 
         let nodeagent_nodes = nodes
             .iter()
             .filter(|node| {
-                node.node_role == common::nodeagent::NodeRole::Nodeagent as i32
-                    || node.node_role == common::nodeagent::NodeRole::Bluechi as i32
+                node.node_role == NodeRole::Nodeagent as i32
+                    || node.node_role == NodeRole::Bluechi as i32
             })
             .count();
 
@@ -124,7 +124,7 @@ pub enum ClusterStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::nodeagent::{NodeRole, ResourceInfo};
+    use common::nodeagent::fromapiserver::{NodeRole, ResourceInfo};
 
     fn create_test_node(node_id: &str, last_heartbeat: i64, status: NodeStatus) -> NodeInfo {
         NodeInfo {

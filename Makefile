@@ -39,30 +39,28 @@ all-images: image rocksdb-image
 
 .PHONY: setup-shared-rocksdb
 setup-shared-rocksdb:
-	-mkdir -p /tmp/pullpiri_shared_rocksdb
-	-chown 1001:1001 /tmp/pullpiri_shared_rocksdb
+	-mkdir -p /etc/piccolo/pullpiri_shared_rocksdb
+	-chown 1001:1001 /etc/piccolo/pullpiri_shared_rocksdb
 
 .PHONY: install
 install: setup-shared-rocksdb
-	-mkdir -p /etc/piccolo/yaml
-	-mkdir -p /etc/containers/systemd/piccolo/
-	-cp -r ./src/settings.yaml /etc/containers/systemd/piccolo/
-	-cp -r ./doc/scripts/version.txt /etc/containers/systemd/piccolo/
-	-cp -r ./doc/scripts/update_server_ip.sh /etc/containers/systemd/piccolo/
-	-cp -r ./containers/piccolo-*.* /etc/containers/systemd/piccolo/
-	systemctl daemon-reload
-	systemctl restart piccolo-server
-	systemctl restart piccolo-player
+	-mkdir -p /etc/piccolo
+	-cp -r ./src/settings.yaml /etc/piccolo/
+	-cp -r ./doc/scripts/version.txt /etc/piccolo/
+	-cp -r ./doc/scripts/update_server_ip.sh /etc/piccolo/
+	-cp -r ./containers/piccolo-*.* /etc/piccolo/
+	-./containers/piccolo-server.sh dev
+	-./containers/piccolo-player.sh dev
 
 .PHONY: uninstall
 uninstall:
-	-systemctl stop piccolo-player
-	-systemctl stop piccolo-server
-	-systemctl stop nodeagent
-	systemctl daemon-reload
-	-rm -rf /etc/piccolo/yaml
-	-rm -rf /etc/containers/systemd/*
-	-rm -rf /tmp/pullpiri_shared_rocksdb
+	-podman pod stop -t 0 piccolo-player
+	-podman pod rm -f --ignore piccolo-player
+	-podman pod stop -t 0 piccolo-server
+	-podman pod rm -f --ignore piccolo-server
+	-cp -r /etc/piccolo/nodeagent.yaml /etc/nodeagent.yaml.bak
+	-rm -rf /etc/piccolo/*
+	-mv /etc/nodeagent.yaml.bak /etc/piccolo/nodeagent.yaml
 
 # DO NOT USE THIS COMMAND IN PRODUCTION
 #.PHONY: rocksdb-image

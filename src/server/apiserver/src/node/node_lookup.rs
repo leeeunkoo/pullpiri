@@ -189,7 +189,8 @@ pub async fn find_guest_nodes() -> Vec<NodeInfo> {
         match serde_json::from_str::<NodeInfo>(&kv.1) {
             Ok(node_info) => {
                 // 마스터 노드가 아닌 경우에만 게스트 노드로 간주
-                if node_info.node_role != common::nodeagent::NodeRole::Master as i32 {
+                if node_info.node_role != common::nodeagent::fromapiserver::NodeRole::Master as i32
+                {
                     println!(
                         "Found guest node: {} ({}) with role: {}",
                         node_info.node_id, node_info.ip_address, node_info.node_role
@@ -208,7 +209,7 @@ pub async fn find_guest_nodes() -> Vec<NodeInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::nodeagent::{NodeRole, NodeStatus, NodeType, ResourceInfo};
+    use common::nodeagent::fromapiserver::{NodeRole, NodeStatus, NodeType, ResourceInfo};
     use std::collections::HashMap;
 
     fn create_test_node_info(
