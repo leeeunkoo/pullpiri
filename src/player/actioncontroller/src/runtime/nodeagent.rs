@@ -11,23 +11,19 @@ use common::Result;
 /// making gRPC calls to the NodeAgent service to perform
 /// operations like creating, starting, stopping, and deleting workloads.
 
-pub async fn create_workload(model_name: &str, node_name: &str) -> Result<()> {
+pub async fn create_workload(pod: &str, node_name: &str) -> Result<()> {
     let cmd = WorkloadCommand::Create;
-    handle_workload(cmd, model_name, node_name).await?;
+    handle_workload(cmd, pod, node_name).await?;
     Ok(())
 }
 
-pub async fn handle_workload(
-    cmd: WorkloadCommand,
-    model_name: &str,
-    node_name: &str,
-) -> Result<()> {
+pub async fn handle_workload(cmd: WorkloadCommand, pod: &str, node_name: &str) -> Result<()> {
     if let Some(addr) = get_node_name_from_hostname(node_name).await {
         println!("node_name: {}, addr: {}", node_name, addr);
 
         let request = HandleWorkloadRequest {
             workload_command: cmd.into(),
-            model_name: model_name.to_string(),
+            pod: pod.to_string(),
         };
         crate::grpc::sender::nodeagent::send_workload_handle_request(&addr, request).await?;
     } else {
@@ -38,21 +34,21 @@ pub async fn handle_workload(
     Ok(())
 }
 
-pub async fn start_workload(model_name: &str, node_name: &str) -> Result<()> {
+pub async fn start_workload(pod: &str, node_name: &str) -> Result<()> {
     let cmd = WorkloadCommand::Start;
-    handle_workload(cmd, model_name, node_name).await?;
+    handle_workload(cmd, pod, node_name).await?;
     Ok(())
 }
 
-pub async fn stop_workload(model_name: &str, node_name: &str) -> Result<()> {
+pub async fn stop_workload(pod: &str, node_name: &str) -> Result<()> {
     let cmd = WorkloadCommand::Stop;
-    handle_workload(cmd, model_name, node_name).await?;
+    handle_workload(cmd, pod, node_name).await?;
     Ok(())
 }
 
-pub async fn restart_workload(model_name: &str, node_name: &str) -> Result<()> {
+pub async fn restart_workload(pod: &str, node_name: &str) -> Result<()> {
     let cmd = WorkloadCommand::Restart;
-    handle_workload(cmd, model_name, node_name).await?;
+    handle_workload(cmd, pod, node_name).await?;
     Ok(())
 }
 

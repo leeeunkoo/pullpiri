@@ -9,7 +9,7 @@ package nodeagent.fromactioncontroller;
 
 message HandleWorkloadRequest {
   WorkloadCommand workload_command = 1;
-  string model_name = 2;
+  string pod = 2;
 }
 
 message HandleWorkloadResponse {

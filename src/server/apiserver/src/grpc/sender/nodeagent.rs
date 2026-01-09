@@ -13,7 +13,7 @@ pub async fn send_to_node(
 ) -> Result<Response<HandleYamlResponse>, Status> {
     // Fix 0.0.0.0 to actual host IP for NodeAgent connection
     let fixed_ip = if node_ip == "0.0.0.0" {
-        "10.231.176.244".to_string()
+        "127.0.0.1".to_string()
     } else {
         node_ip.clone()
     };

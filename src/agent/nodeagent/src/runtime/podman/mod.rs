@@ -69,23 +69,20 @@ pub async fn delete(path: &str) -> Result<hyper::body::Bytes, hyper::Error> {
     hyper::body::to_bytes(res).await
 }
 
-pub async fn handle_workload(
-    command: i32,
-    model_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handle_workload(command: i32, pod: &str) -> Result<(), Box<dyn std::error::Error>> {
     println!(
-        "handle_workload called with command: {} for model: {}",
-        command, model_name
+        "handle_workload called with command: {} for model(pod)",
+        command
     );
     match command {
         x if x == WorkloadCommand::Start as i32 => {
-            container::start(model_name).await?;
+            container::start(pod).await?;
         }
         x if x == WorkloadCommand::Stop as i32 => {
-            container::stop(model_name).await?;
+            container::stop(pod).await?;
         }
         x if x == WorkloadCommand::Restart as i32 => {
-            container::restart(model_name).await?;
+            container::restart(pod).await?;
         }
         _ => {
             // Do nothing for unimplemented commands

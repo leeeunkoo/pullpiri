@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Check environment argument
-ENV="${1:-dev}"
+ENV="${1:-TODO}"
 
 # Set environment variables
 ROCKSDB_VERSION="v11.18.0"
@@ -10,13 +10,15 @@ ROCKSDB_IMAGE="ghcr.io/mco-piccolo/pullpiri-rocksdb:${ROCKSDB_VERSION}"
 VERSION="latest"
 if [ "$ENV" = "prod" ]; then
     CONTAINER_IMAGE="ghcr.io/eclipse-pullpiri/pullpiri:${VERSION}"
-else
+elif [ "$ENV" = "dev" ]; then
     CONTAINER_IMAGE="localhost/pullpiri:latest"
+else
+    echo "Error: Invalid environment '${ENV}'. Must be 'prod' or 'dev'."
+    exit 1
 fi
+echo "Running server in ${ENV} mode with image: ${CONTAINER_IMAGE}"
+
 HOST_IP=$(hostname -I | awk '{print $1}')
-
-echo "Running in ${ENV} mode with image: ${CONTAINER_IMAGE}"
-
 # Create a pod with host networking
 podman pod create \
   --name piccolo-server \
@@ -29,7 +31,7 @@ podman run -d \
   --name piccolo-rocksdbservice \
   --user 0:0 \
   -e RUST_LOG="info" \
-  -v /tmp/pullpiri_shared_rocksdb:/data:Z \
+  -v /etc/piccolo/pullpiri_shared_rocksdb:/data:Z \
   ${ROCKSDB_IMAGE} \
   rocksdbservice --path /data --addr 0.0.0.0 --port 47007
 
@@ -38,8 +40,7 @@ podman run -d \
   --pod piccolo-server \
   --name piccolo-apiserver \
   -e ROCKSDB_SERVICE_URL="http://${HOST_IP}:47007" \
-  -v /etc/piccolo/yaml:/etc/piccolo/yaml:Z \
-  -v /etc/containers/systemd/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
+  -v /etc/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
   ${CONTAINER_IMAGE} \
   /piccolo/apiserver
 
@@ -56,8 +57,7 @@ podman run -d \
   --pod piccolo-server \
   --name piccolo-monitoringserver \
   -e ROCKSDB_SERVICE_URL="http://${HOST_IP}:47007" \
-  -v /etc/piccolo/yaml:/etc/piccolo/yaml:Z \
-  -v /etc/containers/systemd/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
+  -v /etc/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
   ${CONTAINER_IMAGE} \
   /piccolo/monitoringserver
 
@@ -66,7 +66,6 @@ podman run -d \
   --pod piccolo-server \
   --name piccolo-settingsservice \
   -e ROCKSDB_SERVICE_URL="http://${HOST_IP}:47007" \
-  -v /etc/piccolo/yaml:/etc/piccolo/yaml:Z \
-  -v /etc/containers/systemd/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
+  -v /etc/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
   ${CONTAINER_IMAGE} \
   /piccolo/settingsservice --bind-address=${HOST_IP} --bind-port=8080 --log-level=debug

@@ -2,17 +2,30 @@
 * SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
 * SPDX-License-Identifier: Apache-2.0
 */
-use std::{thread, time::Duration};
+use std::{collections::HashMap, thread, time::Duration};
 
 use crate::grpc::sender::pharos::request_network_pod;
 use crate::grpc::sender::statemanager::StateManagerSender;
 use common::{
     actioncontroller::PodStatus as Status,
-    spec::artifact::{Model, Package, Scenario},
+    spec::artifact::{package::ModelInfo, Model, Package, Scenario},
     statemanager::{ResourceType, StateChange},
     Result,
 };
-// Prost Message 트레이트 추가 // base64 Engine 트레이트 추가
+
+// ETCD key prefixes
+const ETCD_SCENARIO_PREFIX: &str = "Scenario";
+const ETCD_PACKAGE_PREFIX: &str = "Package";
+const ETCD_POD_PREFIX: &str = "Pod";
+const ETCD_MODEL_PREFIX: &str = "Model";
+const ETCD_NETWORK_PREFIX: &str = "Network";
+const ETCD_NODE_PREFIX: &str = "Node";
+const ETCD_NODES_PREFIX: &str = "nodes";
+const ETCD_CLUSTER_NODES_PREFIX: &str = "cluster/nodes";
+
+// Node types
+const NODE_TYPE_NODEAGENT: &str = "nodeagent";
+const NODE_ROLE_NODEAGENT: i32 = 2;
 
 /// Manager for coordinating scenario actions and workload operations
 ///
@@ -60,8 +73,7 @@ impl ActionControllerManager {
     /// * `Ok(String)` with node role ("nodeagent") if found
     /// * `Err(...)` if the node could not be found or role determined
     async fn get_node_role_from_etcd(&self, node_name: &str) -> Result<String> {
-        // 1. 먼저 nodes/{hostname} 키에서 노드 IP 조회
-        let node_info_key = format!("nodes/{}", node_name);
+        let node_info_key = format!("{}/{}", ETCD_NODES_PREFIX, node_name);
         #[allow(unused_variables)]
         let node_ip = match common::etcd::get(&node_info_key).await {
             Ok(ip) => ip,
@@ -70,19 +82,11 @@ impl ActionControllerManager {
                     "Warning: Failed to get IP for node '{}' from etcd: {}",
                     node_name, e
                 );
-                // settings.yaml 파일의 호스트 정보 사용
-                let config = common::setting::get_config();
-                if config.host.name == node_name {
-                    println!("Using host IP from settings.yaml: {}", config.host.ip);
-                    config.host.ip.clone()
-                } else {
-                    return Err(format!("No IP found for node '{}'", node_name).into());
-                }
+                self.get_fallback_node_ip(node_name)?
             }
         };
 
-        // 2. 이제 cluster/nodes 접두사에서 상세 정보 조회 시도 (json string)
-        let cluster_node_key = format!("cluster/nodes/{}", node_name);
+        let cluster_node_key = format!("{}/{}", ETCD_CLUSTER_NODES_PREFIX, node_name);
         let node_json = match common::etcd::get(&cluster_node_key).await {
             Ok(value) => value,
             Err(e) => {
@@ -90,30 +94,239 @@ impl ActionControllerManager {
                     "Warning: Failed to get details for node '{}' from etcd: {}",
                     node_name, e
                 );
-                // settings.yaml 파일의 호스트 정보 사용
-                let config = common::setting::get_config();
-                if config.host.name == node_name {
-                    println!("Using role from settings.yaml for node '{}'", node_name);
-                    // settings.yaml의 type 값에 따라 노드 역할 결정
-                    return Ok("nodeagent".to_string());
-                } else {
-                    return Err(format!("No details found for node '{}'", node_name).into());
-                }
+                return self.get_fallback_node_role(node_name);
             }
         };
 
-        // 3. json 파싱
         let node_info: common::apiserver::NodeInfo = serde_json::from_str(&node_json)?;
-
-        // 4. node_role 값에 따라 노드 유형 결정 (node_role: 2 = Nodeagent)
-        let role = if node_info.node_role == 2 {
-            "nodeagent".to_string()
+        let role = if node_info.node_role == NODE_ROLE_NODEAGENT {
+            NODE_TYPE_NODEAGENT.to_string()
         } else {
             return Err(format!("Unknown node role: {}", node_info.node_role).into());
         };
 
         println!("Node {} role loaded from etcd: {}", node_name, role);
         Ok(role)
+    }
+
+    /// Get fallback node IP from settings.yaml
+    fn get_fallback_node_ip(&self, node_name: &str) -> Result<String> {
+        let config = common::setting::get_config();
+        if config.host.name == node_name {
+            println!("Using host IP from settings.yaml: {}", config.host.ip);
+            Ok(config.host.ip.clone())
+        } else {
+            Err(format!("No IP found for node '{}'", node_name).into())
+        }
+    }
+
+    /// Get fallback node role from settings.yaml
+    fn get_fallback_node_role(&self, node_name: &str) -> Result<String> {
+        let config = common::setting::get_config();
+        if config.host.name == node_name {
+            println!("Using role from settings.yaml for node '{}'", node_name);
+            Ok(NODE_TYPE_NODEAGENT.to_string())
+        } else {
+            Err(format!("No details found for node '{}'", node_name).into())
+        }
+    }
+
+    /// Load node roles for all models in a package
+    async fn load_node_roles(&self, package: &Package) -> HashMap<String, String> {
+        let mut node_roles = HashMap::new();
+
+        for mi in package.get_models() {
+            let model_node = mi.get_node();
+            if node_roles.contains_key(&model_node) {
+                continue;
+            }
+
+            match self.get_node_role_from_etcd(&model_node).await {
+                Ok(role) => {
+                    node_roles.insert(model_node.clone(), role);
+                }
+                Err(e) => {
+                    println!(
+                        "Warning: Failed to get role for node '{}' from etcd: {}",
+                        model_node, e
+                    );
+                    if self.nodeagent_nodes.contains(&model_node) {
+                        node_roles.insert(model_node.clone(), NODE_TYPE_NODEAGENT.to_string());
+                        println!(
+                            "Node {} found in nodeagent_nodes from cached list",
+                            model_node
+                        );
+                    }
+                }
+            }
+        }
+
+        node_roles
+    }
+
+    /// Get ETCD keys for scenario resources
+    async fn get_scenario_resources(
+        &self,
+        scenario_name: &str,
+    ) -> Result<(Scenario, Package, Option<String>, Option<String>)> {
+        let etcd_scenario_key = format!("{}/{}", ETCD_SCENARIO_PREFIX, scenario_name);
+        let scenario_str = common::etcd::get(&etcd_scenario_key)
+            .await
+            .map_err(|e| format!("Scenario '{}' not found: {}", scenario_name, e))?;
+        let scenario: Scenario = serde_yaml::from_str(&scenario_str)
+            .map_err(|e| format!("Failed to parse scenario '{}': {}", scenario_name, e))?;
+
+        let etcd_package_key = format!("{}/{}", ETCD_PACKAGE_PREFIX, scenario.get_targets());
+        let package_str = common::etcd::get(&etcd_package_key)
+            .await
+            .map_err(|e| format!("Package key '{}' not found: {}", etcd_package_key, e))?;
+        let package: Package = serde_yaml::from_str(&package_str).map_err(|e| {
+            format!(
+                "Failed to parse package '{}': {}",
+                scenario.get_targets(),
+                e
+            )
+        })?;
+
+        let network_str = common::etcd::get(&format!("{}/{}", ETCD_NETWORK_PREFIX, scenario_name))
+            .await
+            .ok();
+        let node_str = common::etcd::get(&format!("{}/{}", ETCD_NODE_PREFIX, scenario_name))
+            .await
+            .ok();
+
+        Ok((scenario, package, network_str, node_str))
+    }
+
+    /// Execute action on a model
+    async fn execute_model_action(
+        &self,
+        action: &str,
+        model_info: &ModelInfo,
+        node_type: &str,
+        scenario_name: &str,
+        network_str: &Option<String>,
+        node_str: &Option<String>,
+    ) -> Result<()> {
+        let model_name = model_info.get_name();
+        let model_node = model_info.get_node();
+        let pod = common::etcd::get(&format!("{}/{}", ETCD_POD_PREFIX, model_name)).await?;
+
+        match action {
+            "launch" => {
+                self.start_workload(&pod, &model_node, node_type).await?;
+
+                if network_str.is_some() && node_str.is_some() {
+                    request_network_pod(
+                        node_str.clone().unwrap(),
+                        scenario_name.to_string(),
+                        network_str.clone().unwrap(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        format!("Failed to request network pod for '{}': {}", model_name, e)
+                    })?;
+                }
+            }
+            "terminate" => {
+                self.stop_workload(&pod, &model_node, node_type).await?;
+            }
+            "update" | "rollback" => {
+                self.restart_workload(&pod, &model_node, node_type).await?;
+
+                if model_info.get_resources().get_realtime().unwrap_or(false) {
+                    self.handle_realtime_sched(model_info, &model_node).await?;
+                }
+            }
+            _ => {
+                // Ignore unknown actions
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle realtime scheduling for a model
+    async fn handle_realtime_sched(&self, model_info: &ModelInfo, model_node: &str) -> Result<()> {
+        let model_str =
+            common::etcd::get(&format!("{}/{}", ETCD_MODEL_PREFIX, model_info.get_name())).await?;
+        let model: Model = serde_yaml::from_str(&model_str)?;
+
+        if let Some(command) = model.get_podspec().containers[0].command.clone() {
+            if let Some(task_name) = command.last() {
+                crate::grpc::sender::timpani::add_sched_info(
+                    model_info.get_name(),
+                    task_name,
+                    model_node,
+                )
+                .await;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Send state change notification to StateManager
+    async fn notify_state_change(&self, scenario_name: &str, current: &str, target: &str) {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as i64;
+
+        let state_change = StateChange {
+            resource_type: ResourceType::Scenario as i32,
+            resource_name: scenario_name.to_string(),
+            current_state: current.to_string(),
+            target_state: target.to_string(),
+            transition_id: format!("actioncontroller-processing-complete-{}", timestamp),
+            timestamp_ns: timestamp,
+            source: "actioncontroller".to_string(),
+        };
+
+        println!("🔄 SCENARIO STATE TRANSITION: ActionController Completion");
+        println!("   📋 Scenario: {}", scenario_name);
+        println!("   🔄 State Change: {} → {}", current, target);
+        println!("   📤 Sending StateChange to StateManager");
+
+        if let Err(e) = self
+            .state_sender
+            .clone()
+            .send_state_change(state_change)
+            .await
+        {
+            println!("   ❌ Failed to send state change to StateManager: {:?}", e);
+        } else {
+            println!(
+                "   ✅ Successfully notified StateManager: scenario {} {} → {}",
+                scenario_name, current, target
+            );
+        }
+    }
+
+    /// Execute workload operation on specific runtime
+    async fn execute_workload_operation(
+        &self,
+        operation: &str,
+        pod: &str,
+        node_name: &str,
+        node_type: &str,
+    ) -> Result<()> {
+        match node_type {
+            NODE_TYPE_NODEAGENT => match operation {
+                "start" => crate::runtime::nodeagent::start_workload(pod, node_name).await?,
+                "stop" => crate::runtime::nodeagent::stop_workload(pod, node_name).await?,
+                "restart" => crate::runtime::nodeagent::restart_workload(pod, node_name).await?,
+                _ => return Err(format!("Unknown operation '{}'", operation).into()),
+            },
+            _ => {
+                return Err(format!(
+                    "Unsupported node type '{}' for workload '{}' on node '{}'",
+                    node_type, pod, node_name
+                )
+                .into());
+            }
+        }
+        Ok(())
     }
 
     /// Processes a trigger action request for a specific scenario
@@ -138,81 +351,26 @@ impl ActionControllerManager {
     /// - The runtime operation fails
     pub async fn trigger_manager_action(&self, scenario_name: &str) -> Result<()> {
         println!("trigger_manager_action in manager {:?}", scenario_name);
+
         if scenario_name.trim().is_empty() {
             return Err(format!("Scenario '{}' is invalid: cannot be empty", scenario_name).into());
         }
-        let etcd_scenario_key = format!("Scenario/{}", scenario_name);
-        let scenario_str: String = match common::etcd::get(&etcd_scenario_key).await {
-            Ok(value) => value,
-            Err(e) => {
-                return Err(format!("Scenario '{}' not found: {}", scenario_name, e).into());
-            }
-        };
-        let scenario: Scenario = serde_yaml::from_str(&scenario_str)
-            .map_err(|e| format!("Failed to parse scenario '{}': {}", scenario_name, e))?;
 
-        let action: String = scenario.get_actions();
-
-        let etcd_package_key = format!("Package/{}", scenario.get_targets());
-        let package_str = match common::etcd::get(&etcd_package_key).await {
-            Ok(value) => value,
-            Err(e) => {
-                return Err(format!("Package key '{}' not found: {}", etcd_package_key, e).into());
-            }
-        };
-
-        let package: Package = serde_yaml::from_str(&package_str).map_err(|e| {
-            format!(
-                "Failed to parse package '{}': {}",
-                scenario.get_targets(),
-                e
-            )
-        })?;
-
-        // To Do.. network, node yaml extract from etcd.
-        let etcd_network_key = format!("Network/{}", scenario_name);
-        let network_str = (common::etcd::get(&etcd_network_key).await).ok();
-
-        let etcd_node_key = format!("Node/{}", scenario_name);
-        let node_str = (common::etcd::get(&etcd_node_key).await).ok();
-
-        // 각 모델의 노드 정보를 etcd에서 확인
-        let mut node_roles = std::collections::HashMap::new();
+        let (scenario, package, network_str, node_str) =
+            self.get_scenario_resources(scenario_name).await?;
+        let action = scenario.get_actions();
+        let node_roles = self.load_node_roles(&package).await;
 
         for mi in package.get_models() {
             let model_name = mi.get_name();
             let model_node = mi.get_node();
 
-            // 노드 역할 정보가 캐시에 없으면 etcd에서 가져옴
-            if !node_roles.contains_key(&model_node) {
-                match self.get_node_role_from_etcd(&model_node).await {
-                    Ok(role) => {
-                        node_roles.insert(model_node.clone(), role);
-                    }
-                    Err(e) => {
-                        println!(
-                            "Warning: Failed to get role for node '{}' from etcd: {}",
-                            model_node, e
-                        );
-                        if self.nodeagent_nodes.contains(&model_node) {
-                            node_roles.insert(model_node.clone(), "nodeagent".to_string());
-                            println!(
-                                "Node {} found in nodeagent_nodes from cached list",
-                                model_node
-                            );
-                        }
-                    }
-                }
-            }
-
-            // 노드 역할 정보를 사용하여 처리
             let node_type = match node_roles.get(&model_node) {
                 Some(role) => {
                     println!("Using node {} as {}", model_node, role);
                     role.as_str()
                 }
                 None => {
-                    // 역할 정보를 찾을 수 없으면 스킵
                     println!(
                         "Warning: Node '{}' is not configured or cannot determine its role. Skipping deployment.",
                         model_node
@@ -220,114 +378,31 @@ impl ActionControllerManager {
                     continue;
                 }
             };
+
             println!(
                 "Processing model '{}' on node '{}' with action '{}'",
                 model_name, model_node, action
             );
-            match action.as_str() {
-                "launch" => {
-                    self.start_workload(&model_name, &model_node, node_type)
-                        .await
-                        .map_err(|e| format!("Failed to start workload '{}': {}", model_name, e))?;
 
-                    // If network and node are specified, request network pod to Pharos
-                    if network_str.is_some() && node_str.is_some() {
-                        request_network_pod(
-                            node_str.clone().unwrap(),
-                            scenario_name.to_string(),
-                            network_str.clone().unwrap(),
-                        )
-                        .await
-                        .map_err(|e| {
-                            format!("Failed to request network pod for '{}': {}", model_name, e)
-                        })?;
-                    }
-                }
-                "terminate" => {
-                    self.stop_workload(&model_name, &model_node, node_type)
-                        .await
-                        .map_err(|e| format!("Failed to stop workload '{}': {}", model_name, e))?;
-                }
-                "update" | "rollback" => {
-                    self.restart_workload(&model_name, &model_node, node_type)
-                        .await
-                        .map_err(|e| format!("Failed to stop workload '{}': {}", model_name, e))?;
-
-                    // If pod need realtime feature, send sched info to timpani
-                    if mi.get_resources().get_realtime().unwrap_or(false) {
-                        let model_str =
-                            common::etcd::get(&format!("Model/{}", &mi.get_name())).await?;
-                        let model: Model = serde_yaml::from_str(&model_str)?;
-
-                        if let Some(command) = model.get_podspec().containers[0].command.clone() {
-                            if let Some(task_name) = command.last() {
-                                crate::grpc::sender::timpani::add_sched_info(
-                                    mi.get_name(),
-                                    task_name,
-                                    &model_node,
-                                )
-                                .await;
-                            }
-                        }
-                    }
-                }
-                _ => {
-                    // Ignore unknown action for now, or optionally return error:
-                    // return Err(format!("Unknown action '{}'", action).into());
-                }
-            }
-        }
-
-        // 🔍 COMMENT 2: ActionController scenario processing completion
-        // After successful scenario processing (launch/terminate/update actions),
-        // ActionController should notify StateManager of scenario state changes.
-        // This would typically involve calling StateManagerSender to report:
-        // - Action execution success/failure
-        // - Final scenario state transitions
-        // - Resource state confirmations
-
-        println!("🔄 SCENARIO STATE TRANSITION: ActionController Completion");
-        println!("   📋 Scenario: {}", scenario_name);
-        println!("   🔄 State Change: allowed → completed");
-        println!("   🔍 Reason: All scenario actions executed successfully");
-
-        // Send state change to StateManager: allowed -> completed
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as i64;
-
-        let state_change = StateChange {
-            resource_type: ResourceType::Scenario as i32,
-            resource_name: scenario_name.to_string(),
-            current_state: "allowed".to_string(),
-            target_state: "completed".to_string(),
-            transition_id: format!("actioncontroller-processing-complete-{}", timestamp),
-            timestamp_ns: timestamp,
-            source: "actioncontroller".to_string(),
-        };
-
-        println!("   📤 Sending StateChange to StateManager:");
-        println!("      • Resource Type: SCENARIO");
-        println!("      • Resource Name: {}", state_change.resource_name);
-        println!("      • Current State: {}", state_change.current_state);
-        println!("      • Target State: {}", state_change.target_state);
-        println!("      • Transition ID: {}", state_change.transition_id);
-        println!("      • Source: {}", state_change.source);
-
-        if let Err(e) = self
-            .state_sender
-            .clone()
-            .send_state_change(state_change)
+            self.execute_model_action(
+                &action,
+                &mi,
+                node_type,
+                scenario_name,
+                &network_str,
+                &node_str,
+            )
             .await
-        {
-            println!("   ❌ Failed to send state change to StateManager: {:?}", e);
-        } else {
-            println!(
-                "   ✅ Successfully notified StateManager: scenario {} allowed → completed",
-                scenario_name
-            );
+            .map_err(|e| {
+                format!(
+                    "Failed to execute action '{}' on model '{}': {}",
+                    action, model_name, e
+                )
+            })?;
         }
+
+        self.notify_state_change(scenario_name, "allowed", "completed")
+            .await;
 
         Ok(())
     }
@@ -456,44 +531,6 @@ impl ActionControllerManager {
         Ok(())
     }
 
-    /// Restarts an existing workload for the specified scenario
-    ///
-    /// # Arguments
-    ///
-    /// * `scenario_name` - Name of the scenario
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the workload was restarted successfully
-    /// * `Err(...)` if the workload restart failed
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The scenario does not exist
-    /// - The workload does not exist
-    /// - The runtime operation fails
-    pub async fn restart_workload(
-        &self,
-        model_name: &str,
-        node_name: &str,
-        node_type: &str,
-    ) -> Result<()> {
-        match node_type {
-            "nodeagent" => {
-                crate::runtime::nodeagent::restart_workload(model_name, node_name).await?;
-            }
-            _ => {
-                return Err(format!(
-                    "Unsupported node type '{}' for workload '{}' on node '{}'",
-                    node_type, model_name, node_name
-                )
-                .into());
-            }
-        }
-        Ok(())
-    }
-
     /// Pauses an active workload for the specified scenario
     ///
     /// # Arguments
@@ -536,25 +573,9 @@ impl ActionControllerManager {
     /// - The workload does not exist
     /// - The workload is not in a startable state
     /// - The runtime operation fails
-    pub async fn start_workload(
-        &self,
-        model_name: &str,
-        node_name: &str,
-        node_type: &str,
-    ) -> Result<()> {
-        match node_type {
-            "nodeagent" => {
-                crate::runtime::nodeagent::start_workload(model_name, node_name).await?;
-            }
-            _ => {
-                return Err(format!(
-                    "Unsupported node type '{}' for workload '{}' on node '{}'",
-                    node_type, model_name, node_name
-                )
-                .into());
-            }
-        }
-        Ok(())
+    pub async fn start_workload(&self, pod: &str, node_name: &str, node_type: &str) -> Result<()> {
+        self.execute_workload_operation("start", pod, node_name, node_type)
+            .await
     }
 
     /// Stops an active workload for the specified scenario
@@ -566,7 +587,7 @@ impl ActionControllerManager {
     /// # Returns
     ///
     /// * `Ok(())` if the workload was stopped successfully
-    /// * `Err(...)` if the workload stop failed
+    /// * `Err(())` if the workload stop failed
     ///
     /// # Errors
     ///
@@ -575,28 +596,34 @@ impl ActionControllerManager {
     /// - The workload does not exist
     /// - The workload is already stopped
     /// - The runtime operation fails
-    pub async fn stop_workload(
+    pub async fn stop_workload(&self, pod: &str, node_name: &str, node_type: &str) -> Result<()> {
+        self.execute_workload_operation("stop", pod, node_name, node_type)
+            .await
+    }
+
+    /// Restarts an existing workload for the specified scenario  
+    ///
+    /// # Arguments
+    ///
+    /// * `pod` - Pod YAML string
+    /// * `node_name` - Name of the node
+    /// * `node_type` - Type of the node
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the workload was restarted successfully
+    /// * `Err(...)` if the workload restart failed
+    pub async fn restart_workload(
         &self,
-        model_name: &str,
+        pod: &str,
         node_name: &str,
         node_type: &str,
     ) -> Result<()> {
-        match node_type {
-            "nodeagent" => {
-                crate::runtime::nodeagent::stop_workload(model_name, node_name).await?;
-            }
-            _ => {
-                return Err(format!(
-                    "Unsupported node type '{}' for workload '{}' on node '{}'",
-                    node_type, model_name, node_name
-                )
-                .into());
-            }
-        }
-        Ok(())
+        self.execute_workload_operation("restart", pod, node_name, node_type)
+            .await
     }
 
-    pub async fn reload_all_node(&self, model_name: &str, model_node: &str) -> Result<()> {
+    pub async fn reload_all_node(&self, _model_name: &str, _model_node: &str) -> Result<()> {
         thread::sleep(Duration::from_millis(100));
         Ok(())
     }

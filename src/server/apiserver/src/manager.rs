@@ -138,7 +138,7 @@ async fn reload() {
 pub async fn apply_artifact(body: &str) -> common::Result<()> {
     let scenario = crate::artifact::apply(body).await?;
 
-    let handle_yaml = HandleYamlRequest {
+    /*let handle_yaml = HandleYamlRequest {
         yaml: body.to_string(),
     };
 
@@ -244,7 +244,7 @@ pub async fn apply_artifact(body: &str) -> common::Result<()> {
                 }
             }
         }
-    }
+    }*/
 
     let req: HandleScenarioRequest = HandleScenarioRequest {
         action: Action::Apply.into(),

@@ -13,9 +13,12 @@ pub async fn handle_workload(
     // TODO - Currently, just create a test nginx container for development.
     //        Need to implement actual workload handling logic.
     let req = request.into_inner();
-    match crate::runtime::podman::handle_workload(req.workload_command, &req.model_name).await {
+    match crate::runtime::podman::handle_workload(req.workload_command, &req.pod).await {
         Ok(_) => {
-            println!("Workload handle {} successfully", req.workload_command.to_string());
+            println!(
+                "Workload handle {} successfully",
+                req.workload_command.to_string()
+            );
             let response = HandleWorkloadResponse {
                 status: true,
                 desc: format!("Container created"),
