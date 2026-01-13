@@ -11,7 +11,7 @@ pub mod spec;
 
 // gRPC protobuf module for RocksDB service
 pub mod rocksdbservice {
-    tonic::include_proto!("rocksdbservice");
+    include!("generated/rocksdbservice.rs");
 }
 
 fn open_server(port: u16) -> String {
@@ -36,7 +36,7 @@ fn _connect_guest_server(port: u16) -> String {
 }
 
 pub mod actioncontroller {
-    tonic::include_proto!("actioncontroller");
+    include!("generated/actioncontroller.rs");
 
     pub fn open_server() -> String {
         super::open_server(47001)
@@ -48,7 +48,7 @@ pub mod actioncontroller {
 }
 
 pub mod apiserver {
-    tonic::include_proto!("apiserver");
+    include!("generated/apiserver.rs");
 
     pub fn open_rest_server() -> String {
         super::open_server(47099)
@@ -64,7 +64,7 @@ pub mod apiserver {
 }
 
 pub mod filtergateway {
-    tonic::include_proto!("filtergateway");
+    include!("generated/filtergateway.rs");
 
     pub fn open_server() -> String {
         super::open_server(47002)
@@ -76,7 +76,7 @@ pub mod filtergateway {
 }
 
 pub mod monitoringserver {
-    tonic::include_proto!("monitoringserver");
+    include!("generated/monitoringserver.rs");
 
     pub fn open_server() -> String {
         super::open_server(47003)
@@ -88,27 +88,23 @@ pub mod monitoringserver {
 }
 
 pub mod nodeagent {
-    tonic::include_proto!("nodeagent");
+    include!("generated/nodeagent.rs");
 
-    //     pub fn open_server() -> String {
-    //         super::open_server(47004)
-    //     }
+    pub mod fromactioncontroller {
+        include!("generated/nodeagent.fromactioncontroller.rs");
 
-    //     pub fn open_guest_server() -> String {
-    //         super::open_guest_server(47004)
-    //     }
+        pub fn connect_server(node_ip: &str) -> String {
+            format!("http://{node_ip}:47004")
+        }
+    }
 
-    //     pub fn connect_server() -> String {
-    //         super::connect_server(47004)
-    //     }
-
-    //     pub fn connect_guest_server() -> String {
-    //         super::connect_guest_server(47004)
-    //     }
+    pub mod fromapiserver {
+        include!("generated/nodeagent.fromapiserver.rs");
+    }
 }
 
 pub mod policymanager {
-    tonic::include_proto!("policymanager");
+    include!("generated/policymanager.rs");
 
     pub fn open_server() -> String {
         super::open_server(47005)
@@ -120,7 +116,7 @@ pub mod policymanager {
 }
 
 pub mod statemanager {
-    tonic::include_proto!("statemanager");
+    include!("generated/statemanager.rs");
 
     pub fn open_server() -> String {
         super::open_server(47006)
@@ -131,17 +127,19 @@ pub mod statemanager {
     }
 }
 
-pub mod pharos_service {
-    tonic::include_proto!("pharos.api.v1");
-    pub fn connect_pharos_server() -> String {
-        format!("http://{}:{}", crate::setting::get_config().host.ip, 47006)
-    }
-}
-
 pub mod external {
-    tonic::include_proto!("schedinfo.v1");
-    pub fn connect_timpani_server() -> String {
-        format!("http://{}:{}", crate::setting::get_config().host.ip, 50052)
+    pub mod timpani {
+        include!("generated/schedinfo.v1.rs");
+        pub fn connect_timpani_server() -> String {
+            format!("http://{}:{}", crate::setting::get_config().host.ip, 50052)
+        }
+    }
+
+    pub mod pharos {
+        include!("generated/pharos.api.v1.rs");
+        pub fn connect_pharos_server() -> String {
+            format!("http://{}:{}", crate::setting::get_config().host.ip, 47006)
+        }
     }
 }
 

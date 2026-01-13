@@ -29,10 +29,11 @@ async fn initialize(skip_grpc: bool) -> Result<(), Box<dyn Error>> {
     let hostname = &config.host.name;
     let node_type = &config.host.r#type;
 
-    if node_type == "bluechi" {
+    /*if node_type == "bluechi" {
         println!("Adding {} to bluechi_nodes from settings.yaml", hostname);
         manager.bluechi_nodes.push(hostname.clone());
-    } else {
+    } else*/
+    {
         println!("Adding {} to nodeagent_nodes from settings.yaml", hostname);
         manager.nodeagent_nodes.push(hostname.clone());
     }

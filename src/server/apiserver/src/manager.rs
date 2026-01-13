@@ -7,7 +7,7 @@
 use crate::node::node_lookup::{find_guest_nodes, find_node_by_hostname, get_node_ip};
 use common::apiserver::api_server_connection_server::ApiServerConnectionServer;
 use common::filtergateway::{Action, HandleScenarioRequest};
-use common::nodeagent::HandleYamlRequest;
+use common::nodeagent::fromapiserver::HandleYamlRequest;
 use tonic::transport::Server;
 
 /// Launch REST API listener, gRPC server, and reload scenario data in etcd
@@ -78,7 +78,7 @@ async fn register_host_node() -> Result<(), Box<dyn std::error::Error + Send + S
 
     // NodeRegistrationRequest 생성
     let node_id = format!("{}-{}", hostname, ip_address);
-    let registration_request = common::nodeagent::NodeRegistrationRequest {
+    let registration_request = common::nodeagent::fromapiserver::NodeRegistrationRequest {
         node_id: node_id.clone(),
         hostname: hostname.clone(),
         ip_address: ip_address.clone(),
@@ -138,7 +138,7 @@ async fn reload() {
 pub async fn apply_artifact(body: &str) -> common::Result<()> {
     let scenario = crate::artifact::apply(body).await?;
 
-    let handle_yaml = HandleYamlRequest {
+    /*let handle_yaml = HandleYamlRequest {
         yaml: body.to_string(),
     };
 
@@ -244,7 +244,7 @@ pub async fn apply_artifact(body: &str) -> common::Result<()> {
                 }
             }
         }
-    }
+    }*/
 
     let req: HandleScenarioRequest = HandleScenarioRequest {
         action: Action::Apply.into(),

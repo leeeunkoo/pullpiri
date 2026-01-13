@@ -7,7 +7,7 @@
 
 use common::apiserver::NodeInfo;
 use common::etcd;
-use common::nodeagent::{NodeRegistrationRequest, NodeStatus};
+use common::nodeagent::fromapiserver::{NodeRegistrationRequest, NodeStatus};
 
 /// Node manager for handling cluster node operations
 #[derive(Clone)]
@@ -162,7 +162,7 @@ impl NodeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::nodeagent::{NodeRole, NodeStatus, NodeType, ResourceInfo};
+    use common::nodeagent::fromapiserver::{NodeRole, NodeStatus, NodeType, ResourceInfo};
     use std::collections::HashMap;
 
     fn create_test_resource_info() -> ResourceInfo {

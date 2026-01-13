@@ -9,7 +9,7 @@
 //! It is designed to be thread-safe and run in an async context.
 use crate::grpc::sender::NodeAgentSender;
 use common::monitoringserver::{ContainerInfo, ContainerList};
-use common::nodeagent::HandleYamlRequest;
+use common::nodeagent::fromapiserver::HandleYamlRequest;
 use common::Result;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
@@ -60,9 +60,9 @@ impl NodeAgentManager {
         let arc_rx_grpc = Arc::clone(&self.rx_grpc);
         let mut rx_grpc: tokio::sync::MutexGuard<'_, mpsc::Receiver<HandleYamlRequest>> =
             arc_rx_grpc.lock().await;
-        while let Some(yaml_data) = rx_grpc.recv().await {
-            crate::bluechi::parse(yaml_data.yaml, self.hostname.clone()).await?;
-        }
+        /*while let Some(yaml_data) = rx_grpc.recv().await {
+            crate::runtime::bluechi::parse(yaml_data.yaml, self.hostname.clone()).await?;
+        }*/
 
         Ok(())
     }
@@ -269,7 +269,7 @@ spec:
 "#;
     use crate::manager::NodeAgentManager;
     use common::monitoringserver::{ContainerInfo, ContainerList, NodeInfo};
-    use common::nodeagent::HandleYamlRequest;
+    use common::nodeagent::fromapiserver::HandleYamlRequest;
     use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::mpsc;

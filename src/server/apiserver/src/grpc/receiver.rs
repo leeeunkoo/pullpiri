@@ -12,7 +12,9 @@ use common::apiserver::{
     UpdateTopologyResponse,
 };
 use common::etcd;
-use common::nodeagent::{NodeRegistrationRequest, NodeRegistrationResponse, NodeStatus};
+use common::nodeagent::fromapiserver::{
+    NodeRegistrationRequest, NodeRegistrationResponse, NodeStatus,
+};
 use prost::Message;
 use tonic::{Request, Response, Status};
 
@@ -206,7 +208,7 @@ impl ApiServerConnection for ApiServerReceiver {
                     success: true,
                     message: "Node registered successfully".to_string(),
                     cluster_token,
-                    cluster_config: Some(common::nodeagent::ClusterConfig {
+                    cluster_config: Some(common::nodeagent::fromapiserver::ClusterConfig {
                         master_endpoint: "localhost:47099".to_string(), // apiserver endpoint
                         heartbeat_interval: 30,
                         settings: std::collections::HashMap::new(),
@@ -277,7 +279,7 @@ mod tests {
     use super::*;
     use common::apiserver::NodeInfo;
     use common::apiserver::TopologyType;
-    use common::nodeagent::{NodeRole, NodeType, ResourceInfo};
+    use common::nodeagent::fromapiserver::{NodeRole, NodeType, ResourceInfo};
     use std::collections::HashMap;
     use tokio;
 
