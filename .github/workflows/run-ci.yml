@@ -189,85 +189,85 @@ jobs:
           path: dist/reports/clippy/clippy_summary.md
 
       # Step 17: Upload all test reports (JUnit-style)
-      # - name: Upload test reports
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: test-report
-      #     path: dist/tests/*
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: dist/tests/*
 
       # Step 18: Upload test coverage reports
-      # - name: Upload Overall coverage reports
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: coverage-report
-      #     path: dist/coverage/*
+      - name: Upload Overall coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: dist/coverage/*
 
-      # - name: Upload coverage report for server (lcov)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-lcov-server
-      #     path: dist/coverage/server/lcov.info
+      - name: Upload coverage report for server (lcov)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-lcov-server
+          path: dist/coverage/server/lcov.info
 
-      # - name: Upload coverage report for server (xml)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-xml-server
-      #     path: dist/coverage/server/cobertura.xml
+      - name: Upload coverage report for server (xml)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-xml-server
+          path: dist/coverage/server/cobertura.xml
 
-      # - name: Upload coverage report for server (html)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-html-server
-      #     path: dist/coverage/server/tarpaulin-report-server.html
+      - name: Upload coverage report for server (html)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-html-server
+          path: dist/coverage/server/tarpaulin-report-server.html
 
-      # - name: Upload coverage report for tools (lcov)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-lcov-tools
-      #     path: dist/coverage/tools/lcov.info
+      - name: Upload coverage report for tools (lcov)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-lcov-tools
+          path: dist/coverage/tools/lcov.info
 
-      # - name: Upload coverage report for tools (xml)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-xml-tools
-      #     path: dist/coverage/tools/cobertura.xml
+      - name: Upload coverage report for tools (xml)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-xml-tools
+          path: dist/coverage/tools/cobertura.xml
 
-      # - name: Upload coverage report for tools (html)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-html-tools
-      #     path: dist/coverage/tools/tarpaulin-report-tools.html
+      - name: Upload coverage report for tools (html)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-html-tools
+          path: dist/coverage/tools/tarpaulin-report-tools.html
 
-      # - name: Upload coverage report for common (lcov)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-lcov-common
-      #     path: dist/coverage/common/lcov.info
+      - name: Upload coverage report for common (lcov)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-lcov-common
+          path: dist/coverage/common/lcov.info
 
-      # - name: Upload coverage report for common (xml)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-xml-common
-      #     path: dist/coverage/common/cobertura.xml
+      - name: Upload coverage report for common (xml)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-xml-common
+          path: dist/coverage/common/cobertura.xml
 
-      # - name: Upload coverage report for common (html)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-html-common
-      #     path: dist/coverage/common/tarpaulin-report-common.html
+      - name: Upload coverage report for common (html)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-html-common
+          path: dist/coverage/common/tarpaulin-report-common.html
 
-      # Test Cases are not proper and passing so code coverage report will not generate as of now
+      #Test Cases are not proper and passing so code coverage report will not generate as of now
       # - name: Upload coverage report for agent (lcov)
       #   if: always()
       #   uses: actions/upload-artifact@v4
