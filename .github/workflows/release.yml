@@ -68,25 +68,25 @@ jobs:
       #     path: dist/coverage/player/
       
       # Code coverage HTML report for the server component
-      # - name: Download coverage report for server
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: code-coverage-html-server
-      #     path: dist/coverage/server/
+      - name: Download coverage report for server
+        uses: actions/download-artifact@v4
+        with:
+          name: code-coverage-html-server
+          path: dist/coverage/server/
 
       # Code coverage HTML report for the tools component
-      # - name: Download coverage report for tools
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: code-coverage-html-tools
-      #     path: dist/coverage/tools/
+      - name: Download coverage report for tools
+        uses: actions/download-artifact@v4
+        with:
+          name: code-coverage-html-tools
+          path: dist/coverage/tools/
 
       # Code coverage HTML report for the common component
-      # - name: Download coverage report for common
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: code-coverage-html-common
-      #     path: dist/coverage/common/
+      - name: Download coverage report for common
+        uses: actions/download-artifact@v4
+        with:
+          name: code-coverage-html-common
+          path: dist/coverage/common/
 
       # Deny-check report (license allowlist violations)
       - name: Download deny report
@@ -110,11 +110,11 @@ jobs:
           path: dist/reports/clippy/
 
       # Test result report (JUnit XML format)
-      # - name: Download test report
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: test-report
-      #     path: dist/tests/
+      - name: Download test report
+        uses: actions/download-artifact@v4
+        with:
+          name: test-report
+          path: dist/tests/
       
       # License HTML report from cargo-about
       - name: Download license report
@@ -159,32 +159,32 @@ jobs:
       #     file_glob: true
       #     tag: ${{ github.ref }}
 
-      # - name: Upload test coverage report for server to release
-      #   uses: svenstaro/upload-release-action@v2
-      #   id: upload_test_coverage_report_server
-      #   with:
-      #     repo_token: ${{ secrets.GITHUB_TOKEN }}
-      #     file: dist/coverage/server/*.html
-      #     file_glob: true
-      #     tag: ${{ github.ref }}
+      - name: Upload test coverage report for server to release
+        uses: svenstaro/upload-release-action@v2
+        id: upload_test_coverage_report_server
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/coverage/server/*.html
+          file_glob: true
+          tag: ${{ github.ref }}
 
-      # - name: Upload test coverage report for tools to release
-      #   uses: svenstaro/upload-release-action@v2
-      #   id: upload_test_coverage_report_tools
-      #   with:
-      #     repo_token: ${{ secrets.GITHUB_TOKEN }}
-      #     file: dist/coverage/tools/*.html
-      #     file_glob: true
-      #     tag: ${{ github.ref }}
+      - name: Upload test coverage report for tools to release
+        uses: svenstaro/upload-release-action@v2
+        id: upload_test_coverage_report_tools
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/coverage/tools/*.html
+          file_glob: true
+          tag: ${{ github.ref }}
 
-      # - name: Upload test coverage report for common to release
-      #   uses: svenstaro/upload-release-action@v2
-      #   id: upload_test_coverage_report_common
-      #   with:
-      #     repo_token: ${{ secrets.GITHUB_TOKEN }}
-      #     file: dist/coverage/common/*.html
-      #     file_glob: true
-      #     tag: ${{ github.ref }}
+      - name: Upload test coverage report for common to release
+        uses: svenstaro/upload-release-action@v2
+        id: upload_test_coverage_report_common
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/coverage/common/*.html
+          file_glob: true
+          tag: ${{ github.ref }}
 
       - name: Upload deny report to release
         uses: svenstaro/upload-release-action@v2
@@ -210,14 +210,14 @@ jobs:
           file: dist/reports/clippy/clippy_summary.md
           tag: ${{ github.ref }}
 
-      # - name: Upload test report to release
-      #   uses: svenstaro/upload-release-action@v2
-      #   id: upload_test_report
-      #   with:
-      #     repo_token: ${{ secrets.GITHUB_TOKEN }}
-      #     file: dist/tests/test_summary.xml
-      #     file_glob: true
-      #     tag: ${{ github.ref }}
+      - name: Upload test report to release
+        uses: svenstaro/upload-release-action@v2
+        id: upload_test_report
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/tests/test_summary.xml
+          file_glob: true
+          tag: ${{ github.ref }}
 
       - name: Upload license report to release
         uses: svenstaro/upload-release-action@v2
