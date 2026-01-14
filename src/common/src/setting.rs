@@ -57,7 +57,7 @@ mod tests {
         let settings = parse_settings_yaml();
         assert_eq!(settings.host.name, "HPC");
         assert_eq!(settings.host.ip, "0.0.0.0");
-        assert_eq!(settings.host.r#type, "nodeagent");
+        assert_eq!(settings.host.r#type, "bluechi");
     }
 
     // Guest 설정 테스트 제거
@@ -69,7 +69,7 @@ mod tests {
         let config = get_config();
         assert_eq!(config.host.name, "HPC");
         assert_eq!(config.host.ip, "0.0.0.0");
-        assert_eq!(config.host.r#type, "nodeagent");
+        assert_eq!(config.host.r#type, "bluechi");
     }
 
     // Test static behavior of `get_config`
@@ -93,7 +93,7 @@ mod tests {
                     let config = get_config();
                     assert_eq!(config.host.name, "HPC");
                     assert_eq!(config.host.ip, "0.0.0.0");
-                    assert_eq!(config.host.r#type, "nodeagent");
+                    assert_eq!(config.host.r#type, "bluechi");
                 })
             })
             .collect();
