@@ -148,10 +148,10 @@ jobs:
         run: ./scripts/deny_check.sh
 
       # Step 14: Run test coverage script
-      # - name: Run test coverage script
-      #   env:
-      #     ROCKSDB_SERVICE_URL: http://localhost:47007
-      #   run: ./scripts/test_coverage.sh
+      - name: Run test coverage script
+        env:
+          ROCKSDB_SERVICE_URL: http://localhost:47007
+        run: ./scripts/test_coverage.sh
 
       # Step 14.5: Cleanup RocksDB service container
       - name: Stop and remove RocksDB service
