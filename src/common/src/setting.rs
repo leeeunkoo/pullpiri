@@ -24,7 +24,7 @@ fn parse_settings_yaml() -> Settings {
         host: HostSettings {
             name: String::from("HPC"),
             ip: String::from("0.0.0.0"),
-            r#type: String::from("bluechi"),
+            r#type: String::from("nodeagent"),
             role: String::from("master"),
         },
     };
@@ -57,7 +57,7 @@ mod tests {
         let settings = parse_settings_yaml();
         assert_eq!(settings.host.name, "HPC");
         assert_eq!(settings.host.ip, "0.0.0.0");
-        assert_eq!(settings.host.r#type, "bluechi");
+        assert_eq!(settings.host.r#type, "nodeagent");
     }
 
     // Guest 설정 테스트 제거
@@ -69,7 +69,7 @@ mod tests {
         let config = get_config();
         assert_eq!(config.host.name, "HPC");
         assert_eq!(config.host.ip, "0.0.0.0");
-        assert_eq!(config.host.r#type, "bluechi");
+        assert_eq!(config.host.r#type, "nodeagent");
     }
 
     // Test static behavior of `get_config`
@@ -93,7 +93,7 @@ mod tests {
                     let config = get_config();
                     assert_eq!(config.host.name, "HPC");
                     assert_eq!(config.host.ip, "0.0.0.0");
-                    assert_eq!(config.host.r#type, "bluechi");
+                    assert_eq!(config.host.r#type, "nodeagent");
                 })
             })
             .collect();
@@ -116,7 +116,7 @@ mod tests {
     async fn test_parse_settings_yaml_invalid_host_type() {
         // Verify that the host type is valid
         let settings = parse_settings_yaml();
-        let valid_types = vec!["bluechi", "redchi", "greenchi"];
+        let valid_types = vec!["nodeagent", "redchi", "greenchi"];
         assert!(valid_types.contains(&settings.host.r#type.as_str()));
     }
 
