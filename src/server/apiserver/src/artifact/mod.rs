@@ -314,11 +314,38 @@ spec:
     /// Invalid YAML — empty string
     const INVALID_YAML_EMPTY: &str = "";
 
+    /// Valid Model YAML for helloworld-core (required by Package)
+    const VALID_MODEL_YAML: &str = r#"
+apiVersion: v1
+kind: Model
+metadata:
+  name: helloworld-core
+  annotations:
+    io.piccolo.annotations.package-type: helloworld-core
+    io.piccolo.annotations.package-name: helloworld
+    io.piccolo.annotations.package-network: default
+  labels:
+    app: helloworld-core
+spec:
+  hostNetwork: true
+  containers:
+    - name: helloworld
+      image: helloworld:latest
+  terminationGracePeriodSeconds: 0
+"#;
+
     // -- apply() tests --
 
     /// Test apply() with valid artifact YAML (Scenario + Package present)
     #[tokio::test]
     async fn test_apply_valid_artifact() {
+        // First, create the required Model that the Package references
+        let model_value: serde_yaml::Value = serde_yaml::from_str(VALID_MODEL_YAML).unwrap();
+        let model_str = serde_yaml::to_string(&model_value).unwrap();
+        data::write_to_etcd("Model/helloworld-core", &model_str)
+            .await
+            .unwrap();
+
         let result = apply(VALID_ARTIFACT_YAML).await;
 
         // Assert: should succeed because both Scenario + Package present and valid
@@ -331,6 +358,9 @@ spec:
         // Assert: scenario and package strings should not be empty
         let scenario = result.unwrap();
         assert!(!scenario.is_empty(), "Scenario YAML should not be empty");
+
+        // Cleanup: Remove the created Model
+        let _ = data::delete_at_etcd("Model/helloworld-core").await;
     }
 
     /// Test apply() with missing `action` field (invalid Scenario)
