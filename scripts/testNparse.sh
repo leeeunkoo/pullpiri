@@ -75,6 +75,25 @@ run_tests() {
       # Count number of passed and failed tests using jq
       passed=$(jq -r 'select(.type == "test" and .event == "ok") | .name' "$output_json" | wc -l)
       failed=$(jq -r 'select(.type == "test" and .event == "failed") | .name' "$output_json" | wc -l)
+      
+      # Print detailed list of failed tests
+      if [[ "$failed" -gt 0 ]]; then
+        echo "::group::❌ Failed tests in $label" | tee -a "$LOG_FILE"
+        jq -r 'select(.type == "test" and .event == "failed") | "  ❌ \(.name)"' "$output_json" | tee -a "$LOG_FILE"
+        echo "::endgroup::" | tee -a "$LOG_FILE"
+        
+        # Print failure reasons/messages
+        echo "::group::📋 Failure details for $label" | tee -a "$LOG_FILE"
+        jq -r 'select(.type == "test" and .event == "failed") | "Test: \(.name)\nReason: \(.stdout // "No output captured")\n"' "$output_json" | tee -a "$LOG_FILE"
+        echo "::endgroup::" | tee -a "$LOG_FILE"
+      fi
+      
+      # Print list of passed tests (can be collapsed in CI)
+      if [[ "$passed" -gt 0 ]]; then
+        echo "::group::✅ Passed tests in $label ($passed tests)" | tee -a "$LOG_FILE"
+        jq -r 'select(.type == "test" and .event == "ok") | "  ✅ \(.name)"' "$output_json" | tee -a "$LOG_FILE"
+        echo "::endgroup::" | tee -a "$LOG_FILE"
+      fi
     else
       echo "::warning ::jq not found, cannot parse JSON test output."
       passed=0
