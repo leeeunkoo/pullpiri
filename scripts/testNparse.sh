@@ -115,6 +115,11 @@ fi
 [[ -f "$COMMON_MANIFEST" ]] && run_tests "$COMMON_MANIFEST" "common" || echo "::warning ::$COMMON_MANIFEST missing."
 
 # Step 2: Start `filtergateway` and `nodeagent` before testing `apiserver`
+rm -rf /tmp/pullpiri_shared_rocksdb
+mkdir -p /tmp/pullpiri_shared_rocksdb
+# Make directory writable by all users (container needs write access)
+chmod 777 /tmp/pullpiri_shared_rocksdb
+
 start_service "$FILTERGATEWAY_MANIFEST" "filtergateway"
 start_service "$AGENT_MANIFEST" "nodeagent"
 sleep 3  # Give services time to initialize
