@@ -13,23 +13,78 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Install essential dependencies including protobuf-compiler and dbus
+      # Step 2: Free up disk space
+      - name: Free up disk space
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -a -f
+          sudo apt-get clean
+          echo "After cleanup:"
+          df -h
+
+      # Step 3: Install essential dependencies including protobuf-compiler and dbus
       - name: Install essential dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y docker-compose jq curl lsb-release protobuf-compiler libdbus-1-dev pkg-config build-essential
 
-      # Step 3: Install Rust toolchain
+      # Step 4: Install Rust toolchain
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # Step 4: Make all scripts executable
+      # Step 5: Make all scripts executable
       - name: Make scripts executable
         run: chmod +x scripts/*.sh
 
-      # Step 5: Install Rust project dependencies
+      # Step 6: Install Rust project dependencies
       - name: Install project dependencies
         run: ./scripts/installdeps.sh
+
+      # Step 6.5: Setup RocksDB shared storage directory
+      - name: Setup RocksDB storage directory
+        run: |
+          mkdir -p /tmp/pullpiri_shared_rocksdb
+          # Make directory writable by all users (container needs write access)
+          chmod 777 /tmp/pullpiri_shared_rocksdb
+          echo "✅ RocksDB storage directory created at /tmp/pullpiri_shared_rocksdb"
+
+      # Step 5.6: Start RocksDB service container for testing
+      - name: Start RocksDB service container
+        run: |
+          docker run -d \
+            --name rocksdb-test-service \
+            -p 47007:47007 \
+            -v /tmp/pullpiri_shared_rocksdb:/data \
+            -e RUST_LOG=info \
+            ghcr.io/mco-piccolo/pullpiri-rocksdb:v11.18.0 \
+            rocksdbservice --path /data --addr 0.0.0.0 --port 47007
+          echo "✅ RocksDB service container started on port 47007"
+
+      # Step 5.7: Wait for RocksDB service to be ready
+      - name: Wait for RocksDB service to be ready
+        run: |
+          echo "⏳ Waiting for RocksDB service to be ready..."
+          for i in {1..30}; do
+            if docker logs rocksdb-test-service 2>&1 | grep -q "RocksDB gRPC Service starting"; then
+              echo "✅ RocksDB service is ready!"
+              docker logs rocksdb-test-service
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ RocksDB service failed to start!"
+              docker logs rocksdb-test-service
+              exit 1
+            fi
+            echo "  Attempt $i/30: Still waiting..."
+            sleep 2
+          done
+          # Set environment variable for subsequent steps
+          echo "ROCKSDB_SERVICE_URL=http://localhost:47007" >> $GITHUB_ENV
 
       # Step 6: Create output folders for reports
       - name: Create reports directory
@@ -75,8 +130,10 @@ jobs:
           path: dist/binaries/amd/nodeagent-linux-amd64
 
       # Step 10: Run all Rust unit/integration tests and generate reports
-      # - name: Run tests and generate report
-      #   run: ./scripts/testNparse.sh
+      - name: Run tests and generate report
+        env:
+          ROCKSDB_SERVICE_URL: http://localhost:47007
+        run: ./scripts/testNparse.sh
 
       # Step 11: Linting (clippy)
       - name: Run Clippy (lint)
@@ -91,8 +148,19 @@ jobs:
         run: ./scripts/deny_check.sh
 
       # Step 14: Run test coverage script
-      # - name: Run test coverage script
-      #   run: ./scripts/test_coverage.sh
+      - name: Run test coverage script
+        env:
+          ROCKSDB_SERVICE_URL: http://localhost:47007
+        run: ./scripts/test_coverage.sh
+
+      # Step 14.5: Cleanup RocksDB service container
+      - name: Stop and remove RocksDB service
+        if: always()
+        run: |
+          echo "🧹 Cleaning up RocksDB service..."
+          docker stop rocksdb-test-service || true
+          docker rm rocksdb-test-service || true
+          echo "✅ RocksDB service cleaned up"
 
       # === Upload All Reports ===
 
@@ -121,85 +189,85 @@ jobs:
           path: dist/reports/clippy/clippy_summary.md
 
       # Step 17: Upload all test reports (JUnit-style)
-      # - name: Upload test reports
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: test-report
-      #     path: dist/tests/*
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: dist/tests/*
 
       # Step 18: Upload test coverage reports
-      # - name: Upload Overall coverage reports
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: coverage-report
-      #     path: dist/coverage/*
+      - name: Upload Overall coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: dist/coverage/*
 
-      # - name: Upload coverage report for server (lcov)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-lcov-server
-      #     path: dist/coverage/server/lcov.info
+      - name: Upload coverage report for server (lcov)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-lcov-server
+          path: dist/coverage/server/lcov.info
 
-      # - name: Upload coverage report for server (xml)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-xml-server
-      #     path: dist/coverage/server/cobertura.xml
+      - name: Upload coverage report for server (xml)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-xml-server
+          path: dist/coverage/server/cobertura.xml
 
-      # - name: Upload coverage report for server (html)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-html-server
-      #     path: dist/coverage/server/tarpaulin-report-server.html
+      - name: Upload coverage report for server (html)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-html-server
+          path: dist/coverage/server/tarpaulin-report-server.html
 
-      # - name: Upload coverage report for tools (lcov)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-lcov-tools
-      #     path: dist/coverage/tools/lcov.info
+      - name: Upload coverage report for tools (lcov)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-lcov-tools
+          path: dist/coverage/tools/lcov.info
 
-      # - name: Upload coverage report for tools (xml)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-xml-tools
-      #     path: dist/coverage/tools/cobertura.xml
+      - name: Upload coverage report for tools (xml)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-xml-tools
+          path: dist/coverage/tools/cobertura.xml
 
-      # - name: Upload coverage report for tools (html)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-html-tools
-      #     path: dist/coverage/tools/tarpaulin-report-tools.html
+      - name: Upload coverage report for tools (html)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-html-tools
+          path: dist/coverage/tools/tarpaulin-report-tools.html
 
-      # - name: Upload coverage report for common (lcov)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-lcov-common
-      #     path: dist/coverage/common/lcov.info
+      - name: Upload coverage report for common (lcov)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-lcov-common
+          path: dist/coverage/common/lcov.info
 
-      # - name: Upload coverage report for common (xml)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-xml-common
-      #     path: dist/coverage/common/cobertura.xml
+      - name: Upload coverage report for common (xml)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-xml-common
+          path: dist/coverage/common/cobertura.xml
 
-      # - name: Upload coverage report for common (html)
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: code-coverage-html-common
-      #     path: dist/coverage/common/tarpaulin-report-common.html
+      - name: Upload coverage report for common (html)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-html-common
+          path: dist/coverage/common/tarpaulin-report-common.html
 
-      # Test Cases are not proper and passing so code coverage report will not generate as of now
+      #Test Cases are not proper and passing so code coverage report will not generate as of now
       # - name: Upload coverage report for agent (lcov)
       #   if: always()
       #   uses: actions/upload-artifact@v4

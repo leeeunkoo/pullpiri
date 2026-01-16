@@ -24,7 +24,7 @@ fn parse_settings_yaml() -> Settings {
         host: HostSettings {
             name: String::from("HPC"),
             ip: String::from("0.0.0.0"),
-            r#type: String::from("bluechi"),
+            r#type: String::from("nodeagent"),
             role: String::from("master"),
         },
     };
@@ -116,7 +116,7 @@ mod tests {
     async fn test_parse_settings_yaml_invalid_host_type() {
         // Verify that the host type is valid
         let settings = parse_settings_yaml();
-        let valid_types = vec!["bluechi", "redchi", "greenchi"];
+        let valid_types = vec!["nodeagent", "redchi", "greenchi"];
         assert!(valid_types.contains(&settings.host.r#type.as_str()));
     }
 
