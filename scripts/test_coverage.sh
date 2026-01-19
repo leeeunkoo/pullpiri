@@ -63,6 +63,7 @@ if [[ -f "$COMMON_MANIFEST" ]]; then
     cd "$(dirname "$COMMON_MANIFEST")"
     cargo tarpaulin --out Html --out Lcov --out Xml \
       --output-dir "$PROJECT_ROOT/$COVERAGE_ROOT/common" \
+      --ignore-panics --no-fail-fast \
       2>&1 | tee -a "$LOG_FILE" || true
   )
   mv "$PROJECT_ROOT/$COVERAGE_ROOT/common/tarpaulin-report.html" "$PROJECT_ROOT/$COVERAGE_ROOT/common/tarpaulin-report-common.html" 2>/dev/null || true
@@ -94,6 +95,7 @@ if [[ -f "$TOOLS_MANIFEST" ]]; then
     cd "$(dirname "$TOOLS_MANIFEST")"
     cargo tarpaulin --out Html --out Lcov --out Xml \
       --output-dir "$PROJECT_ROOT/$COVERAGE_ROOT/tools" \
+      --ignore-panics --no-fail-fast \
       2>&1 | tee -a "$LOG_FILE" || true
   )
   mv "$PROJECT_ROOT/$COVERAGE_ROOT/tools/tarpaulin-report.html" "$PROJECT_ROOT/$COVERAGE_ROOT/tools/tarpaulin-report-tools.html" 2>/dev/null || true
@@ -119,7 +121,7 @@ if [[ -f "$APISERVER_MANIFEST" ]]; then
     cd "$(dirname "$APISERVER_MANIFEST")"
     cargo tarpaulin --out Html --out Lcov --out Xml \
       --output-dir "$PROJECT_ROOT/$COVERAGE_ROOT/server" \
-      --skip-clean \
+      --skip-clean --ignore-panics --no-fail-fast \
       2>&1 | tee -a "$LOG_FILE" || true
   )
   mv "$PROJECT_ROOT/$COVERAGE_ROOT/server/tarpaulin-report.html" "$PROJECT_ROOT/$COVERAGE_ROOT/server/tarpaulin-report-server.html" 2>/dev/null || true
@@ -154,6 +156,7 @@ if [[ -f "$FILTERGATEWAY_MANIFEST" ]]; then
     cd "$(dirname "$FILTERGATEWAY_MANIFEST")"
     cargo tarpaulin --out Html --out Lcov --out Xml \
       --output-dir "$PROJECT_ROOT/$COVERAGE_ROOT/player" \
+      --ignore-panics --no-fail-fast \
       2>&1 | tee -a "$LOG_FILE" || true
   )
   mv "$PROJECT_ROOT/$COVERAGE_ROOT/player/tarpaulin-report.html" "$PROJECT_ROOT/$COVERAGE_ROOT/player/tarpaulin-report-player.html" 2>/dev/null || true
