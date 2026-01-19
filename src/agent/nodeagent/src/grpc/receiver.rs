@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 use common::nodeagent::node_agent_connection_server::NodeAgentConnection;
 use common::nodeagent::{
     ConfigRequest, ConfigResponse, HandleYamlRequest, HandleYamlResponse, HeartbeatRequest,
@@ -68,7 +72,7 @@ impl NodeAgentConnection for NodeAgentReceiver {
         // This is typically called by the master node, not the node itself
         let config = crate::config::Config::get();
         let master_ip = config.nodeagent.master_ip.clone();
-        
+
         let response = NodeRegistrationResponse {
             success: true,
             message: "Node registration processed".to_string(),
@@ -115,7 +119,7 @@ impl NodeAgentConnection for NodeAgentReceiver {
 
         let config = crate::config::Config::get();
         let master_ip = config.nodeagent.master_ip.clone();
-        
+
         let response = HeartbeatResponse {
             ack: true,
             updated_config: Some(common::nodeagent::ClusterConfig {
@@ -151,7 +155,11 @@ impl NodeAgentConnection for NodeAgentReceiver {
 #[cfg(test)]
 mod tests {
     use crate::grpc::receiver::{NodeAgentConnection, NodeAgentReceiver};
-    use common::nodeagent::{HandleYamlRequest, HandleYamlResponse};
+    use common::nodeagent::{
+        ClusterConfig, ConfigRequest, ConfigResponse, HandleYamlRequest, HandleYamlResponse,
+        HeartbeatRequest, HeartbeatResponse, NodeRegistrationRequest, NodeRegistrationResponse,
+        StatusAck, StatusReport,
+    };
     use tokio::sync::mpsc;
     use tonic::{Request, Status};
 
@@ -247,5 +255,120 @@ spec:
         let status = result.err().unwrap();
         assert_eq!(status.code(), tonic::Code::Unavailable);
         assert!(status.message().starts_with("cannot send condition:"));
+    }
+
+    #[tokio::test]
+    async fn test_register_node_success() {
+        let (tx, _rx) = mpsc::channel(1);
+        let receiver = NodeAgentReceiver::new(
+            tx,
+            "test-node".to_string(),
+            "test-host".to_string(),
+            "192.168.1.100".to_string(),
+        );
+
+        let request = NodeRegistrationRequest {
+            node_id: "test-node".to_string(),
+            hostname: "test-host".to_string(),
+            ip_address: "192.168.1.100".to_string(),
+            ..Default::default()
+        };
+        let tonic_request = Request::new(request);
+
+        let response = receiver
+            .register_node(tonic_request)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(response.success);
+        assert_eq!(response.message, "Node registration processed");
+        assert_eq!(response.cluster_token, "node-token");
+        assert!(response.cluster_config.is_some());
+        let config = response.cluster_config.unwrap();
+        assert!(config.master_endpoint.contains("http://"));
+        assert_eq!(config.heartbeat_interval, 30);
+    }
+
+    #[tokio::test]
+    async fn test_report_status_success() {
+        let (tx, _rx) = mpsc::channel(1);
+        let receiver = NodeAgentReceiver::new(
+            tx,
+            "test-node".to_string(),
+            "test-host".to_string(),
+            "192.168.1.100".to_string(),
+        );
+
+        let request = StatusReport {
+            node_id: "test-node".to_string(),
+            status: 1,
+            ..Default::default()
+        };
+        let tonic_request = Request::new(request);
+
+        let response = receiver
+            .report_status(tonic_request)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(response.received);
+        assert_eq!(response.message, "Status report received");
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_success() {
+        let (tx, _rx) = mpsc::channel(1);
+        let receiver = NodeAgentReceiver::new(
+            tx,
+            "test-node".to_string(),
+            "test-host".to_string(),
+            "192.168.1.100".to_string(),
+        );
+
+        let request = HeartbeatRequest {
+            node_id: "test-node".to_string(),
+            timestamp: 123456789,
+            ..Default::default()
+        };
+        let tonic_request = Request::new(request);
+
+        let response = receiver
+            .heartbeat(tonic_request)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(response.ack);
+        assert!(response.updated_config.is_some());
+        let config = response.updated_config.unwrap();
+        assert!(config.master_endpoint.contains("http://"));
+        assert_eq!(config.heartbeat_interval, 30);
+    }
+
+    #[tokio::test]
+    async fn test_receive_config_success() {
+        let (tx, _rx) = mpsc::channel(1);
+        let receiver = NodeAgentReceiver::new(
+            tx,
+            "test-node".to_string(),
+            "test-host".to_string(),
+            "192.168.1.100".to_string(),
+        );
+
+        let mut config_map = std::collections::HashMap::new();
+        config_map.insert("key".to_string(), "value".to_string());
+
+        let request = ConfigRequest {
+            config: config_map,
+            ..Default::default()
+        };
+        let tonic_request = Request::new(request);
+
+        let response = receiver
+            .receive_config(tonic_request)
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(response.applied);
+        assert_eq!(response.message, "Configuration applied successfully");
     }
 }

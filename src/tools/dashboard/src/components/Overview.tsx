@@ -1,20 +1,51 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+// SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+// SPDX-License-Identifier: Apache-2.0
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./ui/card";
 import { Badge } from "./ui/badge";
-//import { Progress } from "./ui/progress";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,/* BarChart, Bar,*/ PieChart, Pie, Cell/*, Legend*/ } from "recharts";
-import { Server, Box, Network, Database, /*AlertTriangle, CheckCircle, */TrendingUp, Activity, Zap, HardDrive, Cpu, MemoryStick } from "lucide-react";
+//import { Progress } from "./ui/progress"; // 2025-09-23 comment out
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  //BarChart, // 2025-09-23 comment out
+  //Bar, // 2025-09-23 comment out
+  PieChart,
+  Pie,
+  Cell,
+  //Legend, // 2025-09-23 comment out
+} from "recharts";
+import {
+  Server,
+  Box,
+  Network,
+  Database,
+  //AlertTriangle, // 2025-09-23 comment out
+  //CheckCircle,  // 2025-09-23 comment out
+  TrendingUp,
+  Activity,
+  Zap,
+  HardDrive,
+  Cpu,
+  MemoryStick,
+} from "lucide-react";
 
-interface OverviewProps {
-  namespace: string;
-}
-
-export function Overview({ namespace }: OverviewProps) {
+export function Overview() {
   // Mock data
   const clusterStats = {
     nodes: { total: 3, ready: 3, notReady: 0 },
     pods: { total: 42, running: 38, pending: 2, failed: 2 },
     services: { total: 15, active: 15 },
-    deployments: { total: 12, ready: 10, updating: 2 }
+    deployments: { total: 12, ready: 10, updating: 2 },
   };
 
   const cpuUsageData = [
@@ -27,9 +58,27 @@ export function Overview({ namespace }: OverviewProps) {
   ];
 
   const nodeData = [
-    { name: "node-1", cpu: 45, memory: 67, pods: 14, status: "healthy" },
-    { name: "node-2", cpu: 62, memory: 54, pods: 16, status: "healthy" },
-    { name: "node-3", cpu: 38, memory: 71, pods: 12, status: "healthy" },
+    {
+      name: "node-1",
+      cpu: 45,
+      memory: 67,
+      pods: 14,
+      status: "healthy",
+    },
+    {
+      name: "node-2",
+      cpu: 62,
+      memory: 54,
+      pods: 16,
+      status: "healthy",
+    },
+    {
+      name: "node-3",
+      cpu: 38,
+      memory: 71,
+      pods: 12,
+      status: "healthy",
+    },
   ];
 
   const podDistribution = [
@@ -38,15 +87,30 @@ export function Overview({ namespace }: OverviewProps) {
     { name: "Failed", value: 2, color: "#ef4444" },
   ];
 
-  const StatCard = ({ title, value, subtitle, icon: Icon, gradient, trend }: any) => (
+  const StatCard = ({
+    title,
+    value,
+    subtitle,
+    icon: Icon,
+    gradient,
+    trend,
+  }: any) => (
     <Card className="relative overflow-hidden bg-card/80 backdrop-blur-sm border-border/20 shadow-xl hover:shadow-2xl transition-all duration-300 group">
-      <div className={`absolute inset-0 bg-gradient-to-r ${gradient} opacity-5 group-hover:opacity-10 transition-opacity dark:opacity-10 dark:group-hover:opacity-20`}></div>
+      <div
+        className={`absolute inset-0 bg-gradient-to-r ${gradient} opacity-5 group-hover:opacity-10 transition-opacity dark:opacity-10 dark:group-hover:opacity-20`}
+      ></div>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 relative z-10">
         <div>
-          <CardTitle className="text-sm font-semibold text-muted-foreground">{title}</CardTitle>
-          <div className="font-bold text-foreground mt-1">{value}</div>
+          <CardTitle className="text-sm font-semibold text-muted-foreground">
+            {title}
+          </CardTitle>
+          <div className="font-bold text-foreground mt-1">
+            {value}
+          </div>
         </div>
-        <div className={`w-14 h-14 rounded-2xl bg-gradient-to-r ${gradient} flex items-center justify-center shadow-lg`}>
+        <div
+          className={`w-14 h-14 rounded-2xl bg-gradient-to-r ${gradient} flex items-center justify-center shadow-lg`}
+        >
           <Icon className="h-7 w-7 text-white" />
         </div>
       </CardHeader>
@@ -55,10 +119,14 @@ export function Overview({ namespace }: OverviewProps) {
           {trend && (
             <div className="flex items-center gap-1">
               <TrendingUp className="w-3 h-3 text-emerald-500" />
-              <span className="text-emerald-600 dark:text-emerald-400 font-medium">+12%</span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                +12%
+              </span>
             </div>
           )}
-          <span className="text-muted-foreground">{subtitle}</span>
+          <span className="text-muted-foreground">
+            {subtitle}
+          </span>
         </div>
       </CardContent>
     </Card>
@@ -74,15 +142,15 @@ export function Overview({ namespace }: OverviewProps) {
           </h1>
         </div>
         <p className="text-sm lg:text-base text-muted-foreground ml-6 lg:ml-8">
-          Namespace: <span className="font-semibold text-primary">"{namespace}"</span> • 
-          Last updated: <span className="font-medium">2 minutes ago</span>
+          Real-time monitoring and analytics for your PULLPIRI cluster • Last updated:{" "}
+          <span className="font-medium">2 minutes ago</span>
         </p>
       </div>
 
       {/* Enhanced Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-6">
         <StatCard
-          title="Cluster Nodes"
+          title="Nodes"
           value={clusterStats.nodes.total}
           subtitle={`${clusterStats.nodes.ready} nodes ready`}
           icon={Server}
@@ -125,8 +193,13 @@ export function Overview({ namespace }: OverviewProps) {
                   <Activity className="w-4 h-4 text-primary-foreground" />
                 </div>
                 <div>
-                  <CardTitle className="text-base lg:text-lg text-foreground">Cluster Resource Usage Trends</CardTitle>
-                  <CardDescription className="text-sm">Average CPU and Memory usage across all nodes over the last 24 hours</CardDescription>
+                  <CardTitle className="text-base lg:text-lg text-foreground">
+                    Cluster Resource Usage Trends
+                  </CardTitle>
+                  <CardDescription className="text-sm">
+                    Average CPU and Memory usage across all
+                    nodes over the last 24 hours
+                  </CardDescription>
                 </div>
               </div>
               {/* Chart Legend */}
@@ -135,14 +208,18 @@ export function Overview({ namespace }: OverviewProps) {
                   <div className="w-3 h-3 rounded-full bg-slate-600"></div>
                   <div className="flex items-center gap-1">
                     <Cpu className="w-4 h-4 text-slate-600 dark:text-slate-400" />
-                    <span className="text-xs lg:text-sm font-medium text-foreground">Cluster CPU</span>
+                    <span className="text-xs lg:text-sm font-medium text-foreground">
+                      Cluster CPU
+                    </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-slate-500"></div>
                   <div className="flex items-center gap-1">
                     <MemoryStick className="w-4 h-4 text-slate-600 dark:text-slate-400" />
-                    <span className="text-xs lg:text-sm font-medium text-foreground">Cluster Memory</span>
+                    <span className="text-xs lg:text-sm font-medium text-foreground">
+                      Cluster Memory
+                    </span>
                   </div>
                 </div>
               </div>
@@ -152,46 +229,82 @@ export function Overview({ namespace }: OverviewProps) {
             <div className="h-64 lg:h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={cpuUsageData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="time" stroke="hsl(var(--muted-foreground))" fontSize={12} />
-                  <YAxis stroke="hsl(var(--muted-foreground))" label={{ value: 'Usage (%)', angle: -90, position: 'insideLeft' }} fontSize={12} />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'hsl(var(--card))', 
-                      border: '1px solid hsl(var(--border))', 
-                      borderRadius: '12px',
-                      boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
-                      color: 'hsl(var(--foreground))',
-                      fontSize: '12px'
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="hsl(var(--border))"
+                  />
+                  <XAxis
+                    dataKey="time"
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={12}
+                  />
+                  <YAxis
+                    stroke="hsl(var(--muted-foreground))"
+                    label={{
+                      value: "Usage (%)",
+                      angle: -90,
+                      position: "insideLeft",
+                    }}
+                    fontSize={12}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "12px",
+                      boxShadow:
+                        "0 20px 25px -5px rgba(0, 0, 0, 0.1)",
+                      color: "hsl(var(--foreground))",
+                      fontSize: "12px",
                     }}
                     labelFormatter={(label) => `Time: ${label}`}
                     formatter={(value, name) => [
-                      `${value}%`, 
-                      name === 'usage' ? 'Cluster CPU Usage' : 'Cluster Memory Usage'
+                      `${value}%`,
+                      name === "usage"
+                        ? "Cluster CPU Usage"
+                        : "Cluster Memory Usage",
                     ]}
                   />
-                  <Line 
-                    type="monotone" 
-                    dataKey="usage" 
-                    stroke="#475569" 
+                  <Line
+                    type="monotone"
+                    dataKey="usage"
+                    stroke="#475569"
                     strokeWidth={2}
-                    dot={{ fill: '#475569', strokeWidth: 1, r: 3 }}
+                    dot={{
+                      fill: "#475569",
+                      strokeWidth: 1,
+                      r: 3,
+                    }}
                     name="Cluster CPU Usage"
-                    activeDot={{ r: 4, stroke: '#475569', strokeWidth: 2, fill: '#ffffff' }}
+                    activeDot={{
+                      r: 4,
+                      stroke: "#475569",
+                      strokeWidth: 2,
+                      fill: "#ffffff",
+                    }}
                   />
-                  <Line 
-                    type="monotone" 
-                    dataKey="memory" 
-                    stroke="#64748b" 
+                  <Line
+                    type="monotone"
+                    dataKey="memory"
+                    stroke="#64748b"
                     strokeWidth={2}
-                    dot={{ fill: '#64748b', strokeWidth: 1, r: 3 }}
+                    dot={{
+                      fill: "#64748b",
+                      strokeWidth: 1,
+                      r: 3,
+                    }}
                     name="Cluster Memory Usage"
-                    activeDot={{ r: 4, stroke: '#64748b', strokeWidth: 2, fill: '#ffffff' }}
+                    activeDot={{
+                      r: 4,
+                      stroke: "#64748b",
+                      strokeWidth: 2,
+                      fill: "#ffffff",
+                    }}
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            
+
             {/* Additional Info Cards Below Chart */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 lg:gap-4 mt-4 lg:mt-6">
               <div className="bg-slate-50 dark:bg-slate-950/30 p-3 lg:p-4 rounded-xl border border-slate-200 dark:border-slate-800">
@@ -200,9 +313,15 @@ export function Overview({ namespace }: OverviewProps) {
                     <Cpu className="w-3 lg:w-4 h-3 lg:h-4 text-white" />
                   </div>
                   <div>
-                    <p className="text-xs lg:text-sm font-medium text-slate-700 dark:text-slate-300">Cluster CPU Usage</p>
-                    <p className="text-sm lg:text-base font-bold text-slate-800 dark:text-slate-200">58%</p>
-                    <p className="text-xs text-slate-600 dark:text-slate-400">Average across all nodes</p>
+                    <p className="text-xs lg:text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Cluster CPU Usage
+                    </p>
+                    <p className="text-sm lg:text-base font-bold text-slate-800 dark:text-slate-200">
+                      58%
+                    </p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Average across all nodes
+                    </p>
                   </div>
                 </div>
               </div>
@@ -212,9 +331,15 @@ export function Overview({ namespace }: OverviewProps) {
                     <MemoryStick className="w-3 lg:w-4 h-3 lg:h-4 text-white" />
                   </div>
                   <div>
-                    <p className="text-xs lg:text-sm font-medium text-slate-700 dark:text-slate-300">Cluster Memory Usage</p>
-                    <p className="text-sm lg:text-base font-bold text-slate-800 dark:text-slate-200">63%</p>
-                    <p className="text-xs text-slate-600 dark:text-slate-400">Average across all nodes</p>
+                    <p className="text-xs lg:text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Cluster Memory Usage
+                    </p>
+                    <p className="text-sm lg:text-base font-bold text-slate-800 dark:text-slate-200">
+                      63%
+                    </p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Average across all nodes
+                    </p>
                   </div>
                 </div>
               </div>
@@ -229,8 +354,12 @@ export function Overview({ namespace }: OverviewProps) {
                 <Box className="w-4 h-4 text-primary-foreground" />
               </div>
               <div>
-                <CardTitle className="text-base lg:text-lg text-foreground">Pod Distribution</CardTitle>
-                <CardDescription className="text-sm">Current pod status breakdown</CardDescription>
+                <CardTitle className="text-base lg:text-lg text-foreground">
+                  Pod Distribution
+                </CardTitle>
+                <CardDescription className="text-sm">
+                  Current pod status breakdown
+                </CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -248,16 +377,19 @@ export function Overview({ namespace }: OverviewProps) {
                     dataKey="value"
                   >
                     {podDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={entry.color}
+                      />
                     ))}
                   </Pie>
-                  <Tooltip 
+                  <Tooltip
                     contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                      color: 'hsl(var(--foreground))',
-                      fontSize: '12px'
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                      color: "hsl(var(--foreground))",
+                      fontSize: "12px",
                     }}
                   />
                 </PieChart>
@@ -265,12 +397,22 @@ export function Overview({ namespace }: OverviewProps) {
             </div>
             <div className="space-y-2 mt-4">
               {podDistribution.map((item, index) => (
-                <div key={index} className="flex items-center justify-between">
+                <div
+                  key={index}
+                  className="flex items-center justify-between"
+                >
                   <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
-                    <span className="text-xs lg:text-sm font-medium text-foreground">{item.name}</span>
+                    <div
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: item.color }}
+                    ></div>
+                    <span className="text-xs lg:text-sm font-medium text-foreground">
+                      {item.name}
+                    </span>
                   </div>
-                  <span className="text-xs lg:text-sm font-bold text-foreground">{item.value}</span>
+                  <span className="text-xs lg:text-sm font-bold text-foreground">
+                    {item.value}
+                  </span>
                 </div>
               ))}
             </div>
@@ -286,25 +428,37 @@ export function Overview({ namespace }: OverviewProps) {
               <Server className="w-4 h-4 text-primary-foreground" />
             </div>
             <div>
-              <CardTitle className="text-base lg:text-lg text-foreground">Node Performance</CardTitle>
-              <CardDescription className="text-sm">Real-time resource utilization across cluster nodes</CardDescription>
+              <CardTitle className="text-base lg:text-lg text-foreground">
+                Node Performance
+              </CardTitle>
+              <CardDescription className="text-sm">
+                Real-time resource utilization across cluster
+                nodes
+              </CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4 lg:space-y-6">
-            {nodeData.map((node/*, index*/) => (
-              <div key={node.name} className="p-4 lg:p-6 bg-gradient-to-r from-accent/50 to-muted/50 rounded-2xl border border-border/30">
+            {nodeData.map((node/*, index*/) => (  // 2025-09-23 comment out
+              <div
+                key={node.name}
+                className="p-4 lg:p-6 bg-gradient-to-r from-accent/50 to-muted/50 rounded-2xl border border-border/30"
+              >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 lg:w-12 h-10 lg:h-12 bg-primary rounded-xl flex items-center justify-center">
                       <HardDrive className="w-5 lg:w-6 h-5 lg:h-6 text-primary-foreground" />
                     </div>
                     <div>
-                      <h3 className="text-sm lg:text-base font-bold text-foreground">{node.name}</h3>
+                      <h3 className="text-sm lg:text-base font-bold text-foreground">
+                        {node.name}
+                      </h3>
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                        <span className="text-xs lg:text-sm text-muted-foreground">Healthy • {node.pods} pods</span>
+                        <span className="text-xs lg:text-sm text-muted-foreground">
+                          Healthy • {node.pods} pods
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -318,12 +472,16 @@ export function Overview({ namespace }: OverviewProps) {
                     <div className="flex justify-between items-center text-xs lg:text-sm mb-2">
                       <div className="flex items-center gap-2">
                         <Cpu className="w-3 lg:w-4 h-3 lg:h-4 text-slate-600 dark:text-slate-400" />
-                        <span className="font-medium text-foreground">CPU Usage</span>
+                        <span className="font-medium text-foreground">
+                          CPU Usage
+                        </span>
                       </div>
-                      <span className="font-bold text-foreground">{node.cpu}%</span>
+                      <span className="font-bold text-foreground">
+                        {node.cpu}%
+                      </span>
                     </div>
                     <div className="h-2 lg:h-3 bg-muted rounded-full overflow-hidden">
-                      <div 
+                      <div
                         className="h-full bg-slate-600 rounded-full transition-all duration-300"
                         style={{ width: `${node.cpu}%` }}
                       />
@@ -333,12 +491,16 @@ export function Overview({ namespace }: OverviewProps) {
                     <div className="flex justify-between items-center text-xs lg:text-sm mb-2">
                       <div className="flex items-center gap-2">
                         <MemoryStick className="w-3 lg:w-4 h-3 lg:h-4 text-slate-600 dark:text-slate-400" />
-                        <span className="font-medium text-foreground">Memory Usage</span>
+                        <span className="font-medium text-foreground">
+                          Memory Usage
+                        </span>
                       </div>
-                      <span className="font-bold text-foreground">{node.memory}%</span>
+                      <span className="font-bold text-foreground">
+                        {node.memory}%
+                      </span>
                     </div>
                     <div className="h-2 lg:h-3 bg-muted rounded-full overflow-hidden">
-                      <div 
+                      <div
                         className="h-full bg-slate-500 rounded-full transition-all duration-300"
                         style={{ width: `${node.memory}%` }}
                       />

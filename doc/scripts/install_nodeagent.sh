@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+# SPDX-License-Identifier: Apache-2.0
 # install_nodeagent.sh - NodeAgent installation script
 # Usage: ./install_nodeagent.sh --master <master_ip> --node <node_ip> [--role <node_role>] [--type <node_type>]
 
@@ -352,6 +354,9 @@ Environment=GRPC_PORT=${GRPC_PORT}
 ProtectSystem=full
 ProtectHome=true
 NoNewPrivileges=true
+
+ReadWritePaths=/etc/piccolo
+ReadWritePaths=/etc/containers/systemd
 
 [Install]
 WantedBy=multi-user.target

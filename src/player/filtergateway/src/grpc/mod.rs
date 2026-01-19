@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 pub mod receiver;
 pub mod sender;
 
@@ -9,6 +13,7 @@ pub mod sender;
 /// # Returns
 ///
 /// * `common::Result<()>` - Result of initialization
+#[allow(dead_code)]
 pub async fn init() -> common::Result<()> {
     // TODO: Implementation
     Ok(())

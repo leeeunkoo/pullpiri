@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 #![allow(non_snake_case)]
 
 use common::spec::artifact::Scenario;

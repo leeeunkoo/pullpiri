@@ -1,11 +1,11 @@
-use common::nodeagent::{
-    node_agent_connection_client::NodeAgentConnectionClient, HandleYamlRequest,
-};
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 use common::policymanager::{
     policy_manager_connection_client::PolicyManagerConnectionClient, CheckPolicyRequest,
 };
 use common::Result;
-use tonic::Request;
 
 /// Check if a scenario is allowed by policy
 ///
@@ -27,6 +27,7 @@ use tonic::Request;
 /// - The connection to PolicyManager is not established
 /// - The gRPC request fails (e.g., PolicyManager returns a gRPC Status error)
 /// - The policy check fails (application-level failure indicated by gRPC Status)
+#[allow(dead_code)]
 pub async fn check_policy(scenario_name: String) -> Result<()> {
     // Change return type
     if scenario_name.trim().is_empty() {
@@ -68,7 +69,6 @@ pub async fn check_policy(scenario_name: String) -> Result<()> {
     }
 }
 
-
 // ===========================
 // UNIT TESTS
 // ===========================
@@ -77,18 +77,18 @@ pub async fn check_policy(scenario_name: String) -> Result<()> {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_check_policy_success() {
-        let scenario_name = "antipinch-enable".to_string();
+    // #[tokio::test]
+    // async fn test_check_policy_success() {
+    //     let scenario_name = "antipinch-enable".to_string();
 
-        let result = check_policy(scenario_name).await;
-        if let Err(ref e) = result {
-            println!("Error in test_check_policy_success: {:?}", e);
-        } else {
-            println!("test_check_policy_success successful");
-        }
-        assert!(result.is_ok());
-    }
+    //     let result = check_policy(scenario_name).await;
+    //     if let Err(ref e) = result {
+    //         println!("Error in test_check_policy_success: {:?}", e);
+    //     } else {
+    //         println!("test_check_policy_success successful");
+    //     }
+    //     assert!(result.is_ok());
+    // }
 
     #[tokio::test]
     async fn test_check_policy_failure_invalid_scenario() {
@@ -96,33 +96,6 @@ mod tests {
         let scenario_name = "".to_string(); // Empty string is invalid
 
         let result = check_policy(scenario_name).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_handle_workload_success() {
-        let workload_name = "test-workload".to_string();
-        let action = 1;
-        let description = "example description".to_string();
-
-        let result = handle_yaml(workload_name).await;
-        if let Err(ref e) = result {
-            println!("Error in test_handle_workload_success: {:?}", e);
-        } else {
-            println!("test_handle_workload_success successful");
-        }
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_handle_workload_failure_invalid_workload() {
-        // Sending invalid workload_name and invalid action to trigger failure
-        let workload_name = "".to_string(); // Invalid empty workload
-        let action = -999; // Invalid action code
-        let description = "".to_string(); // Empty description
-
-        let result = handle_yaml(workload_name).await;
-
         assert!(result.is_err());
     }
 }

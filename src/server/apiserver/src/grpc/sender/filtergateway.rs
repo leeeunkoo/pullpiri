@@ -132,9 +132,7 @@ spec:
 
         tokio::spawn(async move {
             tonic::transport::Server::builder()
-                .add_service(FilterGatewayConnectionServer::new(
-                    MockFilterGateway::default(),
-                ))
+                .add_service(FilterGatewayConnectionServer::new(MockFilterGateway))
                 .serve_with_incoming(stream)
                 .await
                 .unwrap();

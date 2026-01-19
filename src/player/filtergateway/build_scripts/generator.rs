@@ -1,10 +1,14 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 // Code generation module
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::build_scripts::idl::{collect_idl_files, IdlParser};
+use crate::build_scripts::idl::IdlParser;
 use crate::build_scripts::types::idl_to_rust_type;
 
 /// Function to generate struct file
@@ -23,7 +27,7 @@ pub fn generate_struct_file(
         file,
         "use dust_dds::topic_definition::type_support::{{DdsType, DdsSerialize, DdsDeserialize}};"
     )?;
-    writeln!(file, "")?;
+    writeln!(file)?;
     writeln!(
         file,
         "#[derive(Debug, Clone, Serialize, Deserialize, DdsType, Default)]"
@@ -52,7 +56,7 @@ pub fn generate_type_registry(
 
     writeln!(registry_file, "// Auto-generated DDS type registry")?;
     writeln!(registry_file, "// build.rs에 의해 생성됨")?;
-    writeln!(registry_file, "")?;
+    writeln!(registry_file)?;
     writeln!(
         registry_file,
         "use dust_dds::topic_definition::type_support::{{DdsType, DdsSerialize, DdsDeserialize}};"
@@ -65,7 +69,7 @@ pub fn generate_type_registry(
         "use crate::vehicle::dds::listener::GenericTopicListener;"
     )?;
     writeln!(registry_file, "use crate::vehicle::dds::DdsData;")?;
-    writeln!(registry_file, "")?;
+    writeln!(registry_file)?;
 
     // 타입별 리스너 생성 함수
     writeln!(registry_file, "pub fn create_typed_listener(type_name: &str, topic_name: String, tx: Sender<DdsData>, domain_id: i32) -> Option<Box<dyn DdsTopicListener>> {{")?;
@@ -159,7 +163,7 @@ pub fn generate_dds_module(
 
     writeln!(modules_file, "// Auto-generated DDS module file")?;
     writeln!(modules_file, "// build.rs에 의해 생성됨")?;
-    writeln!(modules_file, "")?;
+    writeln!(modules_file)?;
 
     // 각 IDL 파일에 대한 모듈 생성
     for idl_file in &idl_files {
@@ -204,7 +208,7 @@ pub fn generate_dds_module(
 
     writeln!(types_file, "// Auto-generated DDS type module")?;
     writeln!(types_file, "// build.rs에 의해 생성됨")?;
-    writeln!(types_file, "")?;
+    writeln!(types_file)?;
     writeln!(types_file, "// Include generated modules")?;
     writeln!(types_file, "include!(\"dds_modules.rs\");")?;
 
@@ -226,13 +230,13 @@ pub fn generate_type_metadata_registry(
 
     writeln!(registry_file, "// Auto-generated DDS type metadata")?;
     writeln!(registry_file, "use std::collections::HashMap;")?;
-    writeln!(registry_file, "")?;
+    writeln!(registry_file)?;
     writeln!(registry_file, "pub struct TypeMetadata {{")?;
     writeln!(registry_file, "    pub name: String,")?;
     writeln!(registry_file, "    pub module: String,")?;
     writeln!(registry_file, "    pub fields: HashMap<String, String>,")?;
     writeln!(registry_file, "}}")?;
-    writeln!(registry_file, "")?;
+    writeln!(registry_file)?;
 
     writeln!(
         registry_file,
@@ -359,14 +363,14 @@ pub fn create_empty_modules(out_dir: &str) -> Result<(), Box<dyn std::error::Err
         "use crate::vehicle::dds::listener::GenericTopicListener;"
     )?;
     writeln!(registry_file, "use crate::vehicle::dds::DdsData;")?;
-    writeln!(registry_file, "")?;
+    writeln!(registry_file)?;
     writeln!(registry_file, "pub fn create_typed_listener(type_name: &str, topic_name: String, tx: Sender<DdsData>, domain_id: i32) -> Option<Box<dyn DdsTopicListener>> {{")?;
     writeln!(registry_file, "    // Empty registry - always returns None")?;
     writeln!(registry_file, "    match type_name {{")?;
     writeln!(registry_file, "        _ => None,")?;
     writeln!(registry_file, "    }}")?;
     writeln!(registry_file, "}}")?;
-    writeln!(registry_file, "")?;
+    writeln!(registry_file)?;
 
     // Create dds_type_metadata.rs (empty metadata)
     let metadata_path = Path::new(out_dir).join("dds_type_metadata.rs");
@@ -377,13 +381,13 @@ pub fn create_empty_modules(out_dir: &str) -> Result<(), Box<dyn std::error::Err
         "// Empty DDS type metadata (No IDL files found)"
     )?;
     writeln!(metadata_file, "use std::collections::HashMap;")?;
-    writeln!(metadata_file, "")?;
+    writeln!(metadata_file)?;
     writeln!(metadata_file, "pub struct TypeMetadata {{")?;
     writeln!(metadata_file, "    pub name: String,")?;
     writeln!(metadata_file, "    pub module: String,")?;
     writeln!(metadata_file, "    pub fields: HashMap<String, String>,")?;
     writeln!(metadata_file, "}}")?;
-    writeln!(metadata_file, "")?;
+    writeln!(metadata_file)?;
     writeln!(
         metadata_file,
         "pub fn get_type_metadata() -> HashMap<String, TypeMetadata> {{"

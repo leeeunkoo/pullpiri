@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # GitHub 개발 워크플로우 규칙 가이드
 
 **작성일**: 2025-04-17

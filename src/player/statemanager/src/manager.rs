@@ -13,9 +13,11 @@
 //! state transitions, monitoring, reconciliation, and recovery for all resource types
 //! (Scenario, Package, Model, Volume, Network, Node).
 
+use crate::grpc::sender;
 use crate::state_machine::StateMachine;
 use crate::types::{ActionCommand, TransitionResult};
 use common::monitoringserver::ContainerList;
+use common::spec::artifact::Artifact;
 
 use common::statemanager::{
     ErrorCode, ModelState, PackageState, ResourceType, ScenarioState, StateChange,
@@ -328,6 +330,33 @@ impl StateManagerManager {
             println!("    Success Message: {}", result.message);
             println!("    Transition ID: {}", result.transition_id);
 
+            // 🔍 COMMENT 6: Save scenario state changes to ETCD
+            // StateManager receives state change requests from FilterGateway, ActionController, and PolicyManager
+            // and saves the scenario state transitions to ETCD for persistence
+            if resource_type == ResourceType::Scenario {
+                println!("💾 SCENARIO STATE PERSISTENCE: StateManager ETCD Storage");
+                println!("   📋 Scenario: {}", state_change.resource_name);
+                println!("   🔄 Final State: {}", new_state_str);
+                println!("   🔍 Reason: Successful state transition completed");
+
+                let etcd_key = format!("/scenario/{}/state", state_change.resource_name);
+                let etcd_value = new_state_str;
+
+                println!("   📤 Saving to ETCD:");
+                println!("      • Key: {}", etcd_key);
+                println!("      • Value: {}", etcd_value);
+                println!("      • Operation: common::etcd::put()");
+
+                if let Err(e) = common::etcd::put(&etcd_key, etcd_value).await {
+                    println!("   ❌ Failed to save scenario state to ETCD: {:?}", e);
+                } else {
+                    println!(
+                        "   ✅ Successfully saved scenario state to ETCD: {} → {}",
+                        etcd_key, etcd_value
+                    );
+                }
+            }
+
             // Log any actions that were queued for asynchronous execution
             // Actions are processed separately to keep state transitions fast
             if !result.actions_to_execute.is_empty() {
@@ -416,77 +445,364 @@ impl StateManagerManager {
         // - Update monitoring metrics
     }
 
-    /// Processes a ContainerList message for container health monitoring.
+    /// Processes a ContainerList message for container health monitoring and model state management.
     ///
     /// This method handles container status updates from nodeagent and
-    /// triggers appropriate state transitions based on container health.
+    /// triggers appropriate model state transitions based on container health.
     ///
     /// # Arguments
     /// * `container_list` - ContainerList message with node and container status
     ///
     /// # Processing Steps
     /// 1. Analyze container health and status changes
-    /// 2. Identify resources affected by container changes
-    /// 3. Trigger state transitions for failed or recovered containers
-    /// 4. Update resource health status and monitoring data
+    /// 2. Identify models affected by container changes  
+    /// 3. Evaluate model state based on container states
+    /// 4. Update model states in ETCD if transitions occur
     async fn process_container_list(&self, container_list: ContainerList) {
         println!("=== PROCESSING CONTAINER LIST ===");
         println!("  Node Name: {}", container_list.node_name);
         println!("  Container Count: {}", container_list.containers.len());
 
-        // Process each container for health status analysis
-        for (i, container) in container_list.containers.iter().enumerate() {
-            // container.names is a Vec<String>, so join them for display
-            let container_names = container.names.join(", ");
-            println!("  Container {}: {}", i + 1, container_names);
-            println!("    Image: {}", container.image);
-            println!("    State: {:?}", container.state);
-            println!("    ID: {}", container.id);
+        // Process containers and group by model
+        let model_containers = self
+            .group_containers_by_model(&container_list.containers)
+            .await;
 
-            // container.config is a HashMap, not an Option
-            if !container.config.is_empty() {
-                println!("    Config: {:?}", container.config);
+        // Process each model's container states
+        for (model_name, containers) in model_containers {
+            println!("  Processing model: {}", model_name);
+
+            // Process the state evaluation and transition through the state machine
+            let mut state_machine = self.state_machine.lock().await;
+            let transition_result =
+                state_machine.process_model_state_update(&model_name, &containers);
+
+            if transition_result.is_success() {
+                // Check if state actually changed by looking at actions_to_execute
+                let state_changed = !transition_result.actions_to_execute.is_empty();
+
+                if state_changed {
+                    println!(
+                        "    State transition successful: {}",
+                        transition_result.message
+                    );
+
+                    // Extract the new model state from the transition result
+                    let new_model_state = match transition_result.new_state {
+                        1 => common::statemanager::ModelState::Created,
+                        2 => common::statemanager::ModelState::Paused,
+                        3 => common::statemanager::ModelState::Exited,
+                        4 => common::statemanager::ModelState::Dead,
+                        5 => common::statemanager::ModelState::Running,
+                        _ => common::statemanager::ModelState::Running,
+                    };
+
+                    // Save the new model state to ETCD
+                    drop(state_machine); // Release the lock before async operation
+                    if let Err(e) = self
+                        .save_model_state_to_etcd(&model_name, new_model_state)
+                        .await
+                    {
+                        println!("    Failed to save model state to ETCD: {:?}", e);
+                    } else {
+                        println!("    Successfully saved model state to ETCD");
+
+                        // Trigger package state evaluation based on model state change
+                        // This implements the chain reaction described in the Korean documentation
+                        self.trigger_package_state_evaluation(&model_name).await;
+                    }
+                } else {
+                    println!("    Model state unchanged: {}", transition_result.message);
+                }
+            } else {
+                println!("    State evaluation failed: {}", transition_result.message);
             }
-
-            // Process container annotations if available
-            if !container.annotation.is_empty() {
-                println!("    Annotations: {:?}", container.annotation);
-            }
-
-            // TODO: Implement comprehensive container processing:
-            //
-            // 1. HEALTH STATUS ANALYSIS
-            //    - Analyze container state changes (running -> failed, etc.)
-            //    - Check exit codes for failure conditions
-            //    - Monitor resource usage and performance metrics
-            //    - Detect container restart loops and crash patterns
-            //
-            // 2. RESOURCE MAPPING
-            //    - Map containers to managed resources (scenarios, packages, models)
-            //    - Identify which resources are affected by container changes
-            //    - Determine impact on dependent resources
-            //
-            // 3. STATE TRANSITION TRIGGERS
-            //    - Trigger state transitions for failed containers
-            //    - Handle container recovery and restart scenarios
-            //    - Update resource states based on container health
-            //    - Escalate to recovery management for critical failures
-            //
-            // 4. HEALTH STATUS UPDATES
-            //    - Update resource health status based on container state
-            //    - Generate health check events and notifications
-            //    - Update monitoring and observability data
-            //    - Maintain health history for trend analysis
-            //
-            // 5. ASIL COMPLIANCE MONITORING
-            //    - Monitor ASIL-critical containers for safety violations
-            //    - Generate alerts for safety-critical container failures
-            //    - Implement timing constraints for container recovery
-            //    - Ensure safety systems remain operational
         }
 
-        println!("  Status: Container list processing completed (implementation pending)");
+        println!("  Status: Container list processing completed");
         println!("=====================================");
+    }
+
+    /// Groups containers by their associated model based on annotations or naming conventions
+    async fn group_containers_by_model<'a>(
+        &self,
+        containers: &'a [common::monitoringserver::ContainerInfo],
+    ) -> std::collections::HashMap<String, Vec<&'a common::monitoringserver::ContainerInfo>> {
+        let mut model_containers = std::collections::HashMap::new();
+
+        for container in containers {
+            // Try to extract model name from container annotations first
+            if let Some(model_name) = self.extract_model_name_from_container(container).await {
+                model_containers
+                    .entry(model_name)
+                    .or_insert_with(Vec::new)
+                    .push(container);
+            }
+        }
+
+        model_containers
+    }
+
+    /// Extracts model name from container annotations or configuration
+    async fn extract_model_name_from_container(
+        &self,
+        container: &common::monitoringserver::ContainerInfo,
+    ) -> Option<String> {
+        // Check annotations for model information
+        if let Some(model_name) = container.annotation.get("model") {
+            return Some(model_name.clone());
+        }
+
+        if let Some(model_name) = container.annotation.get("pullpiri.model") {
+            return Some(model_name.clone());
+        }
+
+        // Check config for model information
+        if let Some(model_name) = container.config.get("model") {
+            return Some(model_name.clone());
+        }
+
+        // Try to extract from container names (as fallback)
+        for name in &container.names {
+            if name.contains("model-") {
+                if let Some(model_name) = name.strip_prefix("model-") {
+                    return Some(model_name.to_string());
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Saves model state to ETCD using the format specified in the documentation
+    async fn save_model_state_to_etcd(
+        &self,
+        model_name: &str,
+        model_state: common::statemanager::ModelState,
+    ) -> std::result::Result<(), String> {
+        let key = format!("/model/{}/state", model_name);
+        let value = match model_state {
+            common::statemanager::ModelState::Created => "Created",
+            common::statemanager::ModelState::Paused => "Paused",
+            common::statemanager::ModelState::Exited => "Exited",
+            common::statemanager::ModelState::Dead => "Dead",
+            common::statemanager::ModelState::Running => "Running",
+            _ => "Unknown",
+        };
+
+        println!("    Saving to ETCD - Key: {}, Value: {}", key, value);
+
+        if let Err(e) = common::etcd::put(&key, value).await {
+            println!("    Failed to save model state: {:?}", e);
+            return Err(format!(
+                "Failed to save model state for {}: {:?}",
+                model_name, e
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Saves package state to ETCD using the format specified in the Korean documentation
+    ///
+    /// Format: /package/{package_name}/state -> state_value (e.g., "running", "degraded", "error")
+    async fn save_package_state_to_etcd(
+        &self,
+        package_name: &str,
+        package_state: common::statemanager::PackageState,
+    ) -> std::result::Result<(), String> {
+        let key = format!("/package/{}/state", package_name);
+        let value = package_state.as_str_name();
+
+        println!(
+            "    Saving package state to ETCD - Key: {}, Value: {}",
+            key, value
+        );
+
+        if let Err(e) = common::etcd::put(&key, value).await {
+            println!("    Failed to save package state: {:?}", e);
+            return Err(format!(
+                "Failed to save package state for {}: {:?}",
+                package_name, e
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Triggers package state evaluation and update based on model state changes
+    ///
+    /// This function implements the chain reaction described in the Korean documentation:
+    /// When a model state changes, it triggers package state evaluation to see if the
+    /// package state should also change based on the states of all models in the package.
+    async fn trigger_package_state_evaluation(&self, changed_model_name: &str) {
+        println!(
+            "  Triggering package state evaluation for model: {}",
+            changed_model_name
+        );
+
+        // Find all packages that contain this model using StateMachine
+        let packages = match StateMachine::find_packages_containing_model(changed_model_name).await
+        {
+            Ok(pkgs) => pkgs,
+            Err(e) => {
+                println!(
+                    "    Failed to find packages for model {}: {:?}",
+                    changed_model_name, e
+                );
+                return;
+            }
+        };
+
+        // Evaluate and update state for each package using state machine
+        for package_name in packages {
+            let state_machine = self.state_machine.lock().await;
+            match state_machine
+                .evaluate_and_update_package_state(&package_name)
+                .await
+            {
+                Ok((state_changed, new_state)) => {
+                    drop(state_machine); // Release lock before async operations
+
+                    if state_changed {
+                        // Save new state to ETCD
+                        if let Err(e) = self
+                            .save_package_state_to_etcd(&package_name, new_state)
+                            .await
+                        {
+                            println!("      Failed to save package state: {:?}", e);
+                            continue;
+                        }
+
+                        // If package is in error or degraded state, trigger ActionController reconcile
+                        if new_state == common::statemanager::PackageState::Error
+                            || new_state == common::statemanager::PackageState::Degraded
+                        {
+                            if let Err(e) = self
+                                .trigger_action_controller_reconcile_internal(&package_name)
+                                .await
+                            {
+                                println!(
+                                    "      Failed to trigger ActionController reconcile: {:?}",
+                                    e
+                                );
+                            }
+                        }
+
+                        println!(
+                            "      Successfully updated package {} state to {}",
+                            package_name,
+                            new_state.as_str_name()
+                        );
+                    }
+                }
+                Err(e) => {
+                    println!(
+                        "    Failed to evaluate package state for {}: {:?}",
+                        package_name, e
+                    );
+                }
+            }
+        }
+    }
+
+    /// Trigger ActionController reconcile request for dead/error package state
+    ///
+    /// This implements the requirement from the Korean documentation to send gRPC
+    /// reconcile request to ActionController when package enters error (dead) state.
+    #[cfg(test)]
+    pub async fn trigger_action_controller_reconcile(
+        &self,
+        package_name: &str,
+    ) -> std::result::Result<(), String> {
+        self.trigger_action_controller_reconcile_internal(package_name)
+            .await
+    }
+
+    /// Internal implementation of ActionController reconcile trigger
+    async fn trigger_action_controller_reconcile_internal(
+        &self,
+        package_name: &str,
+    ) -> std::result::Result<(), String> {
+        println!(
+            "      Triggering ActionController reconcile for package: {}",
+            package_name
+        );
+
+        // Find scenario that contains this package
+        let scenario_name = match self.find_scenario_for_package(package_name).await {
+            Ok(Some(name)) => name,
+            Ok(None) => {
+                println!("      No scenario found for package: {}", package_name);
+                return Err(format!("No scenario found for package: {}", package_name));
+            }
+            Err(e) => {
+                println!(
+                    "      Failed to find scenario for package {}: {:?}",
+                    package_name, e
+                );
+                return Err(format!("Failed to find scenario for package: {}", e));
+            }
+        };
+
+        // Create reconcile request using the gRPC sender
+        let reconcile_request = common::actioncontroller::ReconcileRequest {
+            scenario_name: scenario_name.clone(),
+            current: common::actioncontroller::PodStatus::Failed.into(),
+            desired: common::actioncontroller::PodStatus::Running.into(),
+        };
+
+        match sender::_send(reconcile_request).await {
+            Ok(response) => {
+                println!(
+                    "      Successfully sent reconcile request for scenario: {}",
+                    scenario_name
+                );
+                println!(
+                    "      ActionController response: status={:?}",
+                    response.get_ref().status
+                );
+                Ok(())
+            }
+            Err(e) => {
+                let error_msg = format!(
+                    "Failed to send reconcile request to ActionController: {:?}",
+                    e
+                );
+                println!("      {}", error_msg);
+                Err(error_msg)
+            }
+        }
+    }
+
+    /// Find scenario that contains the given package
+    async fn find_scenario_for_package(
+        &self,
+        package_name: &str,
+    ) -> std::result::Result<Option<String>, String> {
+        // Get all scenarios from ETCD
+        match common::etcd::get_all_with_prefix("Scenario/").await {
+            Ok(scenario_entries) => {
+                for kv in scenario_entries {
+                    match serde_yaml::from_str::<common::spec::artifact::Scenario>(&kv.value) {
+                        Ok(scenario) => {
+                            // Check if this scenario references the package
+                            if scenario.get_targets() == package_name {
+                                return Ok(Some(scenario.get_name()));
+                            }
+                        }
+                        Err(e) => {
+                            println!("      Failed to parse scenario {}: {:?}", kv.key, e);
+                        }
+                    }
+                }
+                Ok(None) // No scenario found containing this package
+            }
+            Err(e) => {
+                println!("      Failed to get scenarios from ETCD: {:?}", e);
+                Err(format!("Failed to get scenarios from ETCD: {:?}", e))
+            }
+        }
     }
 
     /// Main message processing loop for handling gRPC requests.
@@ -874,3 +1190,830 @@ async fn execute_action(command: ActionCommand) {
 //    - Resource usage monitoring and optimization
 //    - Health check automation and reporting
 //    - Metrics collection and observability integration
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use common::actioncontroller::{
+        action_controller_connection_server::{
+            ActionControllerConnection, ActionControllerConnectionServer,
+        },
+        CompleteNetworkSettingRequest, CompleteNetworkSettingResponse, ReconcileRequest,
+        ReconcileResponse, TriggerActionRequest, TriggerActionResponse,
+    };
+    use std::sync::Arc;
+    use tonic::{transport::Server, Request, Response, Status};
+
+    /// Mock ActionController receiver for testing
+    #[derive(Clone)]
+    struct MockActionControllerReceiver {
+        reconcile_requests: Arc<tokio::sync::Mutex<Vec<ReconcileRequest>>>,
+    }
+
+    impl MockActionControllerReceiver {
+        fn new() -> Self {
+            Self {
+                reconcile_requests: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            }
+        }
+
+        async fn get_received_requests(&self) -> Vec<ReconcileRequest> {
+            self.reconcile_requests.lock().await.clone()
+        }
+    }
+
+    #[tonic::async_trait]
+    impl ActionControllerConnection for MockActionControllerReceiver {
+        async fn trigger_action(
+            &self,
+            _request: Request<TriggerActionRequest>,
+        ) -> std::result::Result<Response<TriggerActionResponse>, Status> {
+            Ok(Response::new(TriggerActionResponse {
+                status: 0,
+                desc: "Mock trigger action success".to_string(),
+            }))
+        }
+
+        async fn reconcile(
+            &self,
+            request: Request<ReconcileRequest>,
+        ) -> std::result::Result<Response<ReconcileResponse>, Status> {
+            let req = request.into_inner();
+            println!("📨 Mock ActionController received reconcile request:");
+            println!("   - Scenario: {}", req.scenario_name);
+            println!("   - Current: {}", req.current);
+            println!("   - Desired: {}", req.desired);
+
+            // Store the request for verification
+            self.reconcile_requests.lock().await.push(req.clone());
+
+            Ok(Response::new(ReconcileResponse {
+                status: 0,
+                desc: "Mock reconcile success".to_string(),
+            }))
+        }
+
+        async fn complete_network_setting(
+            &self,
+            _request: Request<CompleteNetworkSettingRequest>,
+        ) -> std::result::Result<Response<CompleteNetworkSettingResponse>, Status> {
+            Ok(Response::new(CompleteNetworkSettingResponse {
+                acknowledged: true,
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_statemanager_actioncontroller_communication() {
+        println!("🧪 Testing StateManager → ActionController Communication");
+        println!("=========================================================");
+
+        // Setup mock ActionController receiver
+        let mock_receiver = MockActionControllerReceiver::new();
+        let receiver_clone = mock_receiver.clone();
+
+        // Start mock ActionController server
+        let addr = "127.0.0.1:47001".parse().unwrap();
+        let server_handle = tokio::spawn(async move {
+            println!("🚀 Starting mock ActionController server on {}", addr);
+            Server::builder()
+                .add_service(ActionControllerConnectionServer::new(receiver_clone))
+                .serve(addr)
+                .await
+                .unwrap();
+        });
+
+        // Give server time to start
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        // Create test scenario and package data in etcd
+        let scenario_yaml = r#"
+apiVersion: v1
+kind: Scenario
+metadata:
+    name: test-communication-scenario
+spec:
+    condition:
+        express: eq
+        value: "true"
+        operands:
+            type: DDS
+            name: value
+            value: TestSignal
+    action: update
+    target: test-communication-package
+"#;
+
+        let package_yaml = r#"
+apiVersion: v1
+kind: Package
+metadata:
+    name: test-communication-package
+spec:
+    node: TestNode
+    image: test-image:latest
+    network:
+        mode: host
+"#;
+
+        // Put test data in etcd
+        common::etcd::put("Scenario/test-communication-scenario", scenario_yaml)
+            .await
+            .expect("Failed to put scenario in etcd");
+
+        common::etcd::put("Package/test-communication-package", package_yaml)
+            .await
+            .expect("Failed to put package in etcd");
+
+        // Create StateManager and test the reconcile communication
+        let (tx_container, rx_container) = tokio::sync::mpsc::channel(100);
+        let (tx_state_change, rx_state_change) = tokio::sync::mpsc::channel(100);
+
+        let mut state_manager = StateManagerManager::new(rx_container, rx_state_change).await;
+        state_manager
+            .initialize()
+            .await
+            .expect("Failed to initialize StateManager");
+
+        println!("🔄 Testing trigger_action_controller_reconcile...");
+
+        // Call the function we're testing
+        let result = state_manager
+            .trigger_action_controller_reconcile("test-communication-package")
+            .await;
+
+        // Verify the result
+        assert!(
+            result.is_ok(),
+            "trigger_action_controller_reconcile should succeed: {:?}",
+            result
+        );
+        println!("✅ StateManager successfully sent reconcile request");
+
+        // Give some time for the request to be processed
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        // Verify that ActionController received the request
+        let received_requests = mock_receiver.get_received_requests().await;
+        assert_eq!(
+            received_requests.len(),
+            1,
+            "ActionController should receive exactly one reconcile request"
+        );
+
+        let received_request = &received_requests[0];
+        assert_eq!(
+            received_request.scenario_name,
+            "test-communication-scenario"
+        );
+        assert_eq!(received_request.current, 5); // PodStatus::FAILED
+        assert_eq!(received_request.desired, 3); // PodStatus::RUNNING
+
+        println!("✅ ActionController properly received reconcile request:");
+        println!("   - Scenario: {}", received_request.scenario_name);
+        println!("   - Current Status: {} (FAILED)", received_request.current);
+        println!(
+            "   - Desired Status: {} (RUNNING)",
+            received_request.desired
+        );
+
+        // Cleanup
+        common::etcd::delete("Scenario/test-communication-scenario")
+            .await
+            .expect("Failed to cleanup scenario from etcd");
+
+        common::etcd::delete("Package/test-communication-package")
+            .await
+            .expect("Failed to cleanup package from etcd");
+
+        server_handle.abort();
+        println!("🎉 Test completed successfully!");
+    }
+
+    #[tokio::test]
+    async fn test_statemanager_error_handling() {
+        println!("🧪 Testing StateManager Error Handling");
+        println!("======================================");
+
+        // Test with package that doesn't have an associated scenario
+        let (tx_container, rx_container) = tokio::sync::mpsc::channel(100);
+        let (tx_state_change, rx_state_change) = tokio::sync::mpsc::channel(100);
+
+        let mut state_manager = StateManagerManager::new(rx_container, rx_state_change).await;
+        state_manager
+            .initialize()
+            .await
+            .expect("Failed to initialize StateManager");
+
+        let result = state_manager
+            .trigger_action_controller_reconcile("nonexistent-package")
+            .await;
+
+        assert!(
+            result.is_err(),
+            "Should return error for nonexistent package"
+        );
+        assert!(result
+            .unwrap_err()
+            .contains("No scenario found for package"));
+        println!("✅ Properly handles nonexistent package error");
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    use crate::types::ActionCommand;
+    use common::monitoringserver::{ContainerInfo, ContainerList};
+    use std::collections::HashMap;
+    use tokio::sync::mpsc;
+    use tokio::time::{timeout, Duration};
+
+    #[tokio::test]
+    async fn test_group_containers_by_model_groups_correctly() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        let mut annotation = HashMap::new();
+        annotation.insert("model".to_string(), "group-model".to_string());
+
+        let c1 = common::monitoringserver::ContainerInfo {
+            id: "c1".to_string(),
+            names: vec!["/c1".to_string()],
+            image: "img".to_string(),
+            state: HashMap::new(),
+            config: HashMap::new(),
+            annotation: annotation.clone(),
+            stats: HashMap::new(),
+        };
+
+        let c2 = common::monitoringserver::ContainerInfo {
+            id: "c2".to_string(),
+            names: vec!["/c2".to_string()],
+            image: "img".to_string(),
+            state: HashMap::new(),
+            config: HashMap::new(),
+            annotation: annotation.clone(),
+            stats: HashMap::new(),
+        };
+
+        let containers = vec![c1.clone(), c2.clone()];
+
+        let grouped = manager.group_containers_by_model(&containers).await;
+        assert!(grouped.contains_key("group-model"));
+        let v = grouped.get("group-model").unwrap();
+        assert_eq!(v.len(), 2);
+        // Ensure the entries are the same references to our inputs
+        assert!(v.contains(&&c1));
+        assert!(v.contains(&&c2));
+    }
+
+    #[tokio::test]
+    async fn test_run_action_executor_processes_and_exits() {
+        // Create unbounded channel used by run_action_executor
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ActionCommand>();
+
+        // Spawn the executor
+        let handle = tokio::spawn(async move { run_action_executor(rx).await });
+
+        // Send a single action command
+        let mut ctx = HashMap::new();
+        ctx.insert("k".to_string(), "v".to_string());
+
+        let cmd = ActionCommand {
+            action: "log_completion_clean_up_resources".to_string(),
+            resource_key: "res1".to_string(),
+            resource_type: common::statemanager::ResourceType::Model,
+            transition_id: "t1".to_string(),
+            context: ctx,
+        };
+
+        tx.send(cmd).expect("send should succeed");
+
+        // Drop sender so executor can finish loop
+        drop(tx);
+
+        // Wait for executor to finish (with timeout)
+        let res = timeout(Duration::from_secs(2), handle).await;
+        assert!(res.is_ok(), "Action executor did not finish in time");
+    }
+
+    #[tokio::test]
+    async fn test_extract_model_name_none_when_not_present() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        let container = ContainerInfo {
+            id: "cnone".to_string(),
+            names: vec!["/no-model-here".to_string()],
+            image: "img".to_string(),
+            state: HashMap::new(),
+            config: HashMap::new(),
+            annotation: HashMap::new(),
+            stats: HashMap::new(),
+        };
+
+        let extracted = manager.extract_model_name_from_container(&container).await;
+        assert_eq!(extracted, None);
+    }
+
+    #[tokio::test]
+    async fn test_group_containers_by_model_multiple_models() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        let mut ann1 = HashMap::new();
+        ann1.insert("model".to_string(), "m1".to_string());
+        let c1 = ContainerInfo {
+            id: "c1".to_string(),
+            names: vec!["/a".to_string()],
+            image: "img".to_string(),
+            state: HashMap::new(),
+            config: HashMap::new(),
+            annotation: ann1,
+            stats: HashMap::new(),
+        };
+
+        let mut ann2 = HashMap::new();
+        ann2.insert("model".to_string(), "m2".to_string());
+        let c2 = ContainerInfo {
+            id: "c2".to_string(),
+            names: vec!["/b".to_string()],
+            image: "img".to_string(),
+            state: HashMap::new(),
+            config: HashMap::new(),
+            annotation: ann2,
+            stats: HashMap::new(),
+        };
+
+        let containers = vec![c1.clone(), c2.clone()];
+
+        let grouped = manager.group_containers_by_model(&containers).await;
+        assert!(grouped.contains_key("m1"));
+        assert!(grouped.contains_key("m2"));
+        assert_eq!(grouped.get("m1").unwrap().len(), 1);
+        assert_eq!(grouped.get("m2").unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_run_action_executor_handles_unknown_action_gracefully() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ActionCommand>();
+        let handle = tokio::spawn(async move { run_action_executor(rx).await });
+
+        let cmd = ActionCommand {
+            action: "nonexistent_action_xyz".to_string(),
+            resource_key: "r1".to_string(),
+            resource_type: common::statemanager::ResourceType::Model,
+            transition_id: "t-x".to_string(),
+            context: HashMap::new(),
+        };
+
+        tx.send(cmd).expect("send should succeed");
+        drop(tx);
+
+        let res = timeout(Duration::from_secs(2), handle).await;
+        assert!(res.is_ok(), "Action executor did not finish in time");
+    }
+
+    #[tokio::test]
+    async fn test_clone_for_task_shares_arcs() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+        let cloned = manager.clone_for_task();
+
+        // The internal Arcs should point to the same allocation
+        assert!(std::sync::Arc::ptr_eq(
+            &manager.state_machine,
+            &cloned.state_machine
+        ));
+        assert!(std::sync::Arc::ptr_eq(
+            &manager.rx_container,
+            &cloned.rx_container
+        ));
+        assert!(std::sync::Arc::ptr_eq(
+            &manager.rx_state_change,
+            &cloned.rx_state_change
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_execute_action_known_and_unknown() {
+        let mut ctx = HashMap::new();
+        ctx.insert("k".to_string(), "v".to_string());
+
+        let cmd_known = ActionCommand {
+            action: "log_completion_clean_up_resources".to_string(),
+            resource_key: "r1".to_string(),
+            resource_type: common::statemanager::ResourceType::Model,
+            transition_id: "t1".to_string(),
+            context: ctx.clone(),
+        };
+
+        // Known action should execute without panic
+        super::execute_action(cmd_known).await;
+
+        // Unknown action should hit the default branch and not panic
+        let cmd_unknown = ActionCommand {
+            action: "nonexistent_action_abc".to_string(),
+            resource_key: "r2".to_string(),
+            resource_type: common::statemanager::ResourceType::Model,
+            transition_id: "t2".to_string(),
+            context: HashMap::new(),
+        };
+
+        super::execute_action(cmd_unknown).await;
+    }
+
+    #[tokio::test]
+    async fn test_group_containers_by_model_empty() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+        let containers: Vec<common::monitoringserver::ContainerInfo> = vec![];
+        let grouped = manager.group_containers_by_model(&containers).await;
+        assert!(grouped.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_execute_action_many_variants() {
+        // Call a selection of known action strings to cover match arms
+        let actions = vec![
+            "start_condition_evaluation",
+            "start_policy_verification",
+            "execute_action_on_target_package",
+            "log_denial_generate_alert",
+            "start_model_creation_allocate_resources",
+            "update_state_announce_availability",
+            "log_warning_activate_partial_functionality",
+            "log_error_attempt_recovery",
+            "pause_models_preserve_state",
+            "resume_models_restore_state",
+            "start_node_selection_and_allocation",
+            "pull_container_images_mount_volumes",
+            "update_state_start_readiness_checks",
+            "set_backoff_timer_collect_logs",
+            "attempt_diagnostics_restore_communication",
+            "resume_monitoring_reset_counter",
+            "log_error_notify_for_manual_intervention",
+            "synchronize_state_recover_if_needed",
+            "start_model_recreation",
+        ];
+
+        for (i, a) in actions.into_iter().enumerate() {
+            let cmd = ActionCommand {
+                action: a.to_string(),
+                resource_key: format!("res-{}", i),
+                resource_type: common::statemanager::ResourceType::Model,
+                transition_id: format!("t-{}", i),
+                context: HashMap::new(),
+            };
+            super::execute_action(cmd).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_transition_failure_variants() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        let dummy_change = StateChange {
+            resource_type: common::statemanager::ResourceType::Model as i32,
+            resource_name: "r".to_string(),
+            current_state: "s1".to_string(),
+            target_state: "s2".to_string(),
+            transition_id: "tid".to_string(),
+            source: "test".to_string(),
+            timestamp_ns: 0,
+        };
+
+        use common::statemanager::ErrorCode;
+
+        let variants = vec![
+            ErrorCode::InvalidStateTransition,
+            ErrorCode::PreconditionFailed,
+            ErrorCode::ResourceNotFound,
+        ];
+
+        for ev in variants {
+            let result = TransitionResult {
+                new_state: 0,
+                error_code: ev,
+                message: format!("err {:?}", ev),
+                actions_to_execute: Vec::new(),
+                transition_id: "tid".to_string(),
+                error_details: "details".to_string(),
+            };
+
+            manager
+                .handle_transition_failure(&dummy_change, &result)
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_process_container_list_with_model() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        let mut ann = HashMap::new();
+        ann.insert("model".to_string(), "mtest".to_string());
+
+        let c = common::monitoringserver::ContainerInfo {
+            id: "c1".to_string(),
+            names: vec!["/model-mtest".to_string()],
+            image: "img".to_string(),
+            state: HashMap::new(),
+            config: HashMap::new(),
+            annotation: ann,
+            stats: HashMap::new(),
+        };
+
+        let cl = ContainerList {
+            node_name: "node1".to_string(),
+            containers: vec![c],
+        };
+
+        // Should run without panic and process the single model
+        manager.process_container_list(cl).await;
+    }
+
+    #[tokio::test]
+    async fn test_process_state_change_invalid_resource_type_returns_early() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        // Use an invalid numeric resource type
+        let bad = StateChange {
+            resource_type: 9999,
+            resource_name: "x".to_string(),
+            current_state: "".to_string(),
+            target_state: "".to_string(),
+            transition_id: "t".to_string(),
+            source: "s".to_string(),
+            timestamp_ns: 0,
+        };
+
+        manager.process_state_change(bad).await;
+    }
+
+    #[tokio::test]
+    async fn test_save_model_and_package_state_to_etcd_success() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        // Attempt to save a model state (success path)
+        let res = manager
+            .save_model_state_to_etcd("test-model", common::statemanager::ModelState::Running)
+            .await;
+        assert!(
+            res.is_ok(),
+            "save_model_state_to_etcd should succeed: {:?}",
+            res
+        );
+
+        // Attempt to save a package state (success path)
+        let res2 = manager
+            .save_package_state_to_etcd("test-package", common::statemanager::PackageState::Running)
+            .await;
+        assert!(
+            res2.is_ok(),
+            "save_package_state_to_etcd should succeed: {:?}",
+            res2
+        );
+    }
+
+    #[tokio::test]
+    async fn test_save_model_state_to_etcd_failure_on_long_key() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        // Create an excessively long model name to force an ETCD key length validation error
+        let long_name = "a".repeat(2000);
+
+        let res = manager
+            .save_model_state_to_etcd(&long_name, common::statemanager::ModelState::Running)
+            .await;
+
+        assert!(
+            res.is_err(),
+            "Expected save_model_state_to_etcd to fail for long key"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_save_package_state_to_etcd_failure_on_long_key() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        // Create an excessively long package name to force an ETCD key length validation error
+        let long_name = "b".repeat(2000);
+
+        let res = manager
+            .save_package_state_to_etcd(&long_name, common::statemanager::PackageState::Running)
+            .await;
+
+        assert!(
+            res.is_err(),
+            "Expected save_package_state_to_etcd to fail for long key"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_trigger_action_controller_reconcile_no_scenario() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        // Use a package name unlikely to have a scenario mapping in ETCD
+        let res = manager
+            .trigger_action_controller_reconcile("no-such-package")
+            .await;
+        assert!(
+            res.is_err(),
+            "Expected reconcile to fail when no scenario exists"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_process_grpc_requests_loop_exits_on_close() {
+        let (tx_container, rx_container) = tokio::sync::mpsc::channel::<ContainerList>(10);
+        let (tx_state_change, rx_state_change) =
+            tokio::sync::mpsc::channel::<common::statemanager::StateChange>(10);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        // Spawn the processing loop (map result to unit so the spawned future is Send)
+        let mgr = manager.clone_for_task();
+        let handle = tokio::spawn(async move {
+            let _ = mgr.process_grpc_requests().await;
+        });
+
+        // Send a container list and a dummy state change
+        let c = ContainerList {
+            node_name: "node-x".to_string(),
+            containers: Vec::new(),
+        };
+        tx_container
+            .send(c)
+            .await
+            .expect("send container should succeed");
+
+        let sc = StateChange {
+            resource_type: common::statemanager::ResourceType::Model as i32,
+            resource_name: "r1".to_string(),
+            current_state: "".to_string(),
+            target_state: "".to_string(),
+            transition_id: "t1".to_string(),
+            source: "test".to_string(),
+            timestamp_ns: 0,
+        };
+
+        tx_state_change
+            .send(sc)
+            .await
+            .expect("send state change should succeed");
+
+        // Close senders so loop exits
+        drop(tx_container);
+        drop(tx_state_change);
+
+        // Wait for the processing tasks to finish (with timeout)
+        let res = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+        assert!(res.is_ok(), "process_grpc_requests did not finish in time");
+    }
+
+    #[tokio::test]
+    async fn test_manager_process_state_change_scenario_saves_etcd() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        // Build a valid Scenario state change Idle -> Waiting
+        let sc = StateChange {
+            resource_type: common::statemanager::ResourceType::Scenario as i32,
+            resource_name: "etcd-save-scenario".to_string(),
+            current_state: "Idle".to_string(),
+            target_state: "Waiting".to_string(),
+            transition_id: "t-etcd".to_string(),
+            timestamp_ns: 1,
+            source: "unittest".to_string(),
+        };
+
+        manager.process_state_change(sc.clone()).await;
+
+        // Check etcd key exists for scenario state
+        let key = format!("/scenario/{}/state", sc.resource_name);
+        let val = common::etcd::get(&key)
+            .await
+            .expect("etcd get should succeed");
+        assert!(val == "Waiting" || val == "Allowed" || !val.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_trigger_package_state_evaluation_no_packages() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        // Ensure no packages exist for this test model
+        let _ = common::etcd::delete("Package/no-packages").await;
+
+        // Should run without panic even if no packages found
+        manager
+            .trigger_package_state_evaluation("no-packages")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_trigger_package_state_evaluation_updates_and_attempts_reconcile() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        // Create a package with a single model that is Dead -> package should become Error
+        let pkg_key = "Package/pkg-update";
+        let pkg_yaml = r#"{"apiVersion":"v1","kind":"Package","metadata":{"name":"pkg-update"},"spec":{"pattern":[],"models":[{"name":"mup","node":"n","resources":{"volume":"","network":"","realtime":false}}]}}"#;
+        let _ = common::etcd::put(pkg_key, pkg_yaml).await;
+
+        // Set model state to Dead
+        let _ = common::etcd::put("/model/mup/state", "Dead").await;
+        // Set current package state to running so a change is detected
+        let _ = common::etcd::put("/package/pkg-update/state", "running").await;
+
+        // Trigger evaluation
+        manager.trigger_package_state_evaluation("mup").await;
+
+        // After evaluation, the package state should be updated (Error expected)
+        let state = StateMachine::get_current_package_state("pkg-update").await;
+        assert!(state.is_some());
+        assert_eq!(state.unwrap(), common::statemanager::PackageState::Error);
+    }
+
+    #[tokio::test]
+    async fn test_find_scenario_for_package_no_scenarios() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let manager = StateManagerManager::new(rx_container, rx_state_change).await;
+
+        // Ensure no scenarios present
+        let _ = common::etcd::delete("Scenario/nonexistent").await;
+
+        let res = manager.find_scenario_for_package("no-scn").await;
+        assert!(res.is_ok());
+        let opt = res.unwrap();
+        assert!(opt.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_initialize_starts_executor() {
+        let (tx_container, rx_container) = mpsc::channel::<ContainerList>(1);
+        let (tx_state_change, rx_state_change) =
+            mpsc::channel::<common::statemanager::StateChange>(1);
+
+        let mut manager = StateManagerManager::new(rx_container, rx_state_change).await;
+        // initialize should start the async action executor without error
+        let res = manager.initialize().await;
+        assert!(res.is_ok());
+    }
+}

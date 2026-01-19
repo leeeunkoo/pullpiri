@@ -24,7 +24,8 @@ fn connect_server(port: u16) -> String {
 }
 
 // guest 서버 연결 함수 수정: 이제 항상 호스트 서버 주소 반환
-fn connect_guest_server(port: u16) -> String {
+//using rust build in _ to below code , as it was never used anywhere to prevent warnings
+fn _connect_guest_server(port: u16) -> String {
     // 항상 호스트 서버 주소 반환
     connect_server(port)
 }
@@ -84,21 +85,21 @@ pub mod monitoringserver {
 pub mod nodeagent {
     tonic::include_proto!("nodeagent");
 
-//     pub fn open_server() -> String {
-//         super::open_server(47004)
-//     }
+    //     pub fn open_server() -> String {
+    //         super::open_server(47004)
+    //     }
 
-//     pub fn open_guest_server() -> String {
-//         super::open_guest_server(47004)
-//     }
+    //     pub fn open_guest_server() -> String {
+    //         super::open_guest_server(47004)
+    //     }
 
-//     pub fn connect_server() -> String {
-//         super::connect_server(47004)
-//     }
+    //     pub fn connect_server() -> String {
+    //         super::connect_server(47004)
+    //     }
 
-//     pub fn connect_guest_server() -> String {
-//         super::connect_guest_server(47004)
-//     }
+    //     pub fn connect_guest_server() -> String {
+    //         super::connect_guest_server(47004)
+    //     }
 }
 
 pub mod policymanager {
@@ -131,6 +132,14 @@ pub mod pharos_service {
         format!("http://{}:{}", crate::setting::get_config().host.ip, 47006)
     }
 }
+
+pub mod external {
+    tonic::include_proto!("schedinfo.v1");
+    pub fn connect_timpani_server() -> String {
+        format!("http://{}:{}", crate::setting::get_config().host.ip, 50052)
+    }
+}
+
 //Unit Test Cases
 #[cfg(test)]
 mod tests {

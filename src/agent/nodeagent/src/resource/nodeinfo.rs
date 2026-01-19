@@ -1,10 +1,15 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 use super::NodeInfo;
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
 use sysinfo::{Networks, System};
 
 // Static storage for previous IO/network values for delta calculation
-static PREV_IO: Lazy<Mutex<Option<(u64, u64, u64, u64)>>> = Lazy::new(|| Mutex::new(None));
+type PrevIoType = Option<(u64, u64, u64, u64)>;
+static PREV_IO: Lazy<Mutex<PrevIoType>> = Lazy::new(|| Mutex::new(None));
 
 /// Returns NodeInfo with rx_bytes, tx_bytes, read_bytes, write_bytes as deltas since last call.
 pub fn extract_node_info_delta() -> NodeInfo {

@@ -8,18 +8,21 @@ use anyhow::Result;
 use serde_json::Value;
 
 /// Parse YAML content into a JSON Value
+#[allow(dead_code)]
 pub fn parse_yaml(content: &str) -> Result<Value, SettingsError> {
     serde_yaml::from_str(content)
         .map_err(|e| SettingsError::Config(format!("YAML parse error: {}", e)))
 }
 
 /// Serialize a JSON Value to YAML string
+#[allow(dead_code)]
 pub fn to_yaml_string(value: &Value) -> Result<String, SettingsError> {
     serde_yaml::to_string(value)
         .map_err(|e| SettingsError::Config(format!("YAML serialization error: {}", e)))
 }
 
 /// Merge two YAML values, with overlay taking precedence
+#[allow(dead_code)]
 pub fn merge_yaml(base: &mut Value, overlay: &Value) -> Result<(), SettingsError> {
     match (base.clone(), overlay) {
         (Value::Object(mut base_map), Value::Object(overlay_map)) => {
@@ -40,6 +43,7 @@ pub fn merge_yaml(base: &mut Value, overlay: &Value) -> Result<(), SettingsError
 }
 
 /// Get a value at the specified path
+#[allow(dead_code)]
 pub fn get_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
     let parts: Vec<&str> = path.split('.').collect();
     let mut current = value;
@@ -57,6 +61,7 @@ pub fn get_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
 }
 
 /// Set a value at the specified path
+#[allow(dead_code)]
 pub fn set_path(value: &mut Value, path: &str, new_value: Value) -> Result<(), SettingsError> {
     let parts: Vec<&str> = path.split('.').collect();
     if parts.is_empty() {

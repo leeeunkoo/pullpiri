@@ -59,6 +59,12 @@ pub struct DataStore {
     pub container_node_mapping: HashMap<String, String>, // ADD THIS LINE
 }
 
+impl Default for DataStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DataStore {
     pub fn new() -> Self {
         Self {
@@ -585,5 +591,607 @@ impl AggregatedMetrics for BoardInfo {
         self.total_tx_bytes = tx_bytes;
         self.total_read_bytes = read_bytes;
         self.total_write_bytes = write_bytes;
+    }
+}
+
+// ...existing code...
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::monitoringserver::{ContainerInfo, NodeInfo};
+    use std::time::SystemTime;
+
+    fn sample_node(name: &str, ip: &str) -> NodeInfo {
+        NodeInfo {
+            node_name: name.to_string(),
+            ip: ip.to_string(),
+            cpu_usage: 50.0,
+            cpu_count: 4,
+            gpu_count: 1,
+            used_memory: 2048,
+            total_memory: 4096,
+            mem_usage: 50.0,
+            rx_bytes: 1000,
+            tx_bytes: 2000,
+            read_bytes: 3000,
+            write_bytes: 4000,
+            arch: "x86_64".to_string(),
+            os: "linux".to_string(),
+        }
+    }
+
+    fn sample_container(id: &str, name: &str) -> ContainerInfo {
+        ContainerInfo {
+            id: id.to_string(),
+            names: vec![name.to_string()],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_generate_soc_id() {
+        let ip = "192.168.10.201";
+        let soc_id = DataStore::generate_soc_id(ip).unwrap();
+        assert_eq!(soc_id, "192.168.10.200");
+
+        let ip2 = "192.168.10.219";
+        let soc_id2 = DataStore::generate_soc_id(ip2).unwrap();
+        assert_eq!(soc_id2, "192.168.10.210");
+
+        assert!(DataStore::generate_soc_id("invalid_ip").is_err());
+    }
+
+    #[test]
+    fn test_generate_board_id() {
+        let ip = "192.168.10.201";
+        let board_id = DataStore::generate_board_id(ip).unwrap();
+        assert_eq!(board_id, "192.168.10.200");
+
+        let ip2 = "192.168.10.255";
+        let board_id2 = DataStore::generate_board_id(ip2).unwrap();
+        assert_eq!(board_id2, "192.168.10.200");
+
+        assert!(DataStore::generate_board_id("bad_ip").is_err());
+    }
+
+    #[test]
+    fn test_socinfo_update_with_node() {
+        let node1 = sample_node("node1", "192.168.10.201");
+        let mut soc = SocInfo::new("192.168.10.200".to_string(), node1.clone());
+        assert_eq!(soc.nodes.len(), 1);
+
+        let node2 = sample_node("node2", "192.168.10.202");
+        soc.update_with_node(node2.clone());
+        assert_eq!(soc.nodes.len(), 2);
+
+        // Update existing node
+        let mut node2_updated = node2.clone();
+        node2_updated.cpu_usage = 80.0;
+        soc.update_with_node(node2_updated.clone());
+        assert_eq!(soc.nodes.len(), 2);
+        assert!(soc.nodes.iter().any(|n| n.cpu_usage == 80.0));
+    }
+
+    #[test]
+    fn test_boardinfo_update_with_node() {
+        let node1 = sample_node("node1", "192.168.10.201");
+        let mut board = BoardInfo::new("192.168.10.200".to_string(), node1.clone());
+        assert_eq!(board.nodes.len(), 1);
+
+        let node2 = sample_node("node2", "192.168.10.202");
+        board.update_with_node(node2.clone());
+        assert_eq!(board.nodes.len(), 2);
+
+        // Update existing node
+        let mut node2_updated = node2.clone();
+        node2_updated.cpu_usage = 90.0;
+        board.update_with_node(node2_updated.clone());
+        assert_eq!(board.nodes.len(), 2);
+        assert!(board.nodes.iter().any(|n| n.cpu_usage == 90.0));
+    }
+
+    #[test]
+    fn test_aggregated_metrics_trait() {
+        let node1 = sample_node("node1", "192.168.10.201");
+        let node2 = sample_node("node2", "192.168.10.202");
+        let mut soc = SocInfo::new("192.168.10.200".to_string(), node1.clone());
+        soc.update_with_node(node2.clone());
+        soc.recalculate_totals();
+        assert_eq!(soc.total_cpu_count, 8);
+        assert_eq!(soc.total_gpu_count, 2);
+        assert_eq!(soc.total_used_memory, 4096);
+        assert_eq!(soc.total_memory, 8192);
+        assert_eq!(soc.total_mem_usage, 50.0);
+
+        let mut board = BoardInfo::new("192.168.10.200".to_string(), node1.clone());
+        board.update_with_node(node2.clone());
+        board.recalculate_totals();
+        assert_eq!(board.total_cpu_count, 8);
+        assert_eq!(board.total_gpu_count, 2);
+        assert_eq!(board.total_used_memory, 4096);
+        assert_eq!(board.total_memory, 8192);
+        assert_eq!(board.total_mem_usage, 50.0);
+    }
+
+    #[test]
+    fn test_datastore_new_and_basic_ops() {
+        let ds = DataStore::new();
+        assert!(ds.nodes.is_empty());
+        assert!(ds.socs.is_empty());
+        assert!(ds.boards.is_empty());
+        assert!(ds.containers.is_empty());
+        assert!(ds.container_node_mapping.is_empty());
+    }
+
+    #[test]
+    fn test_get_containers_by_node() {
+        let mut ds = DataStore::new();
+        let container = sample_container("c1", "container1");
+        ds.containers.insert("c1".to_string(), container.clone());
+        ds.container_node_mapping
+            .insert("c1".to_string(), "node1".to_string());
+
+        let containers = ds.get_containers_by_node("node1");
+        assert_eq!(containers.len(), 1);
+        assert_eq!(containers[0].id, "c1");
+    }
+
+    #[tokio::test]
+    async fn test_store_node_info_success_and_etcd_error() {
+        let mut ds = DataStore::new();
+        let node = sample_node("node1", "192.168.10.201");
+
+        // Should succeed and update all maps
+        let result = ds.store_node_info(node.clone()).await;
+        assert!(result.is_ok());
+        assert!(ds.nodes.contains_key("node1"));
+        let soc_id = DataStore::generate_soc_id("192.168.10.201").unwrap();
+        let board_id = DataStore::generate_board_id("192.168.10.201").unwrap();
+        assert!(ds.socs.contains_key(&soc_id));
+        assert!(ds.boards.contains_key(&board_id));
+
+        // Should fail on invalid IP
+        let mut bad_node = node.clone();
+        bad_node.ip = "bad_ip".to_string();
+        let result = ds.store_node_info(bad_node).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_store_node_info_multiple_nodes_same_soc_board() {
+        let mut ds = DataStore::new();
+        let node1 = sample_node("node1", "192.168.10.201");
+        let node2 = sample_node("node2", "192.168.10.202"); // Same soc/board group
+
+        ds.store_node_info(node1.clone()).await.unwrap();
+        ds.store_node_info(node2.clone()).await.unwrap();
+
+        let soc_id = DataStore::generate_soc_id("192.168.10.201").unwrap();
+        let board_id = DataStore::generate_board_id("192.168.10.201").unwrap();
+
+        let soc = ds.socs.get(&soc_id).unwrap();
+        assert_eq!(soc.nodes.len(), 2);
+
+        let board = ds.boards.get(&board_id).unwrap();
+        assert_eq!(board.nodes.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_store_node_info_etcd_error_handling() {
+        // This test ensures that etcd_errors are handled gracefully (no panic, still Ok)
+        let mut ds = DataStore::new();
+        let node = sample_node("node1", "192.168.10.201");
+        // etcd_storage is expected to fail in test, but store_node_info should still return Ok
+        let result = ds.store_node_info(node).await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_node_info_and_soc_board_info() {
+        let mut ds = DataStore::new();
+        let node = sample_node("node1", "192.168.10.201");
+        ds.nodes.insert("node1".to_string(), node.clone());
+        let soc = SocInfo::new("192.168.10.200".to_string(), node.clone());
+        ds.socs.insert("192.168.10.200".to_string(), soc.clone());
+        let board = BoardInfo::new("192.168.10.200".to_string(), node.clone());
+        ds.boards
+            .insert("192.168.10.200".to_string(), board.clone());
+
+        assert!(ds.get_node_info("node1").is_some());
+        assert!(ds.get_soc_info("192.168.10.200").is_some());
+        assert!(ds.get_board_info("192.168.10.200").is_some());
+        assert_eq!(ds.get_all_nodes().len(), 1);
+        assert_eq!(ds.get_all_socs().len(), 1);
+        assert_eq!(ds.get_all_boards().len(), 1);
+    }
+
+    #[test]
+    fn test_update_board_socs() {
+        let mut ds = DataStore::new();
+        let node = sample_node("node1", "192.168.10.201");
+        let soc = SocInfo::new("192.168.10.200".to_string(), node.clone());
+        ds.socs.insert("192.168.10.200".to_string(), soc.clone());
+        let mut board = BoardInfo::new("192.168.10.200".to_string(), node.clone());
+        ds.boards
+            .insert("192.168.10.200".to_string(), board.clone());
+
+        // Should update board.socs with the soc
+        ds.update_board_socs("192.168.10.200").unwrap();
+        let board_info = ds.get_board_info("192.168.10.200").unwrap();
+        assert_eq!(board_info.socs.len(), 1);
+        assert_eq!(board_info.socs[0].soc_id, "192.168.10.200");
+    }
+
+    #[test]
+    fn test_socinfo_and_boardinfo_recalculate_totals_empty() {
+        let mut soc = SocInfo {
+            soc_id: "test".to_string(),
+            nodes: vec![],
+            total_cpu_usage: 0.0,
+            total_cpu_count: 0,
+            total_gpu_count: 0,
+            total_used_memory: 0,
+            total_memory: 0,
+            total_mem_usage: 0.0,
+            total_rx_bytes: 0,
+            total_tx_bytes: 0,
+            total_read_bytes: 0,
+            total_write_bytes: 0,
+            last_updated: SystemTime::now(),
+        };
+        soc.recalculate_totals();
+        assert_eq!(soc.total_cpu_usage, 0.0);
+
+        let mut board = BoardInfo {
+            board_id: "test".to_string(),
+            nodes: vec![],
+            socs: vec![],
+            total_cpu_usage: 0.0,
+            total_cpu_count: 0,
+            total_gpu_count: 0,
+            total_used_memory: 0,
+            total_memory: 0,
+            total_mem_usage: 0.0,
+            total_rx_bytes: 0,
+            total_tx_bytes: 0,
+            total_read_bytes: 0,
+            total_write_bytes: 0,
+            last_updated: SystemTime::now(),
+        };
+        board.recalculate_totals();
+        assert_eq!(board.total_cpu_usage, 0.0);
+    }
+
+    #[test]
+    fn test_container_node_mapping_cleanup() {
+        let mut ds = DataStore::new();
+        let container1 = sample_container("c1", "container1");
+        let container2 = sample_container("c2", "container2");
+        ds.containers.insert("c1".to_string(), container1.clone());
+        ds.containers.insert("c2".to_string(), container2.clone());
+        ds.container_node_mapping
+            .insert("c1".to_string(), "node1".to_string());
+        ds.container_node_mapping
+            .insert("c2".to_string(), "node1".to_string());
+
+        // Only c1 should remain after cleanup
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(ds.cleanup_node_containers("node1", &vec!["c1".to_string()]));
+        assert!(ds.containers.contains_key("c1"));
+        assert!(!ds.containers.contains_key("c2"));
+        assert!(ds.container_node_mapping.contains_key("c1"));
+        assert!(!ds.container_node_mapping.contains_key("c2"));
+    }
+    #[test]
+    fn test_get_all_containers_and_nodes_socs_boards() {
+        let mut ds = DataStore::new();
+        let node = sample_node("node1", "192.168.10.201");
+        let soc = SocInfo::new("192.168.10.200".to_string(), node.clone());
+        let board = BoardInfo::new("192.168.10.200".to_string(), node.clone());
+        let container = sample_container("c1", "container1");
+
+        ds.nodes.insert("node1".to_string(), node.clone());
+        ds.socs.insert("192.168.10.200".to_string(), soc.clone());
+        ds.boards
+            .insert("192.168.10.200".to_string(), board.clone());
+        ds.containers.insert("c1".to_string(), container.clone());
+
+        assert_eq!(ds.get_all_containers().len(), 1);
+        assert_eq!(ds.get_all_nodes().len(), 1);
+        assert_eq!(ds.get_all_socs().len(), 1);
+        assert_eq!(ds.get_all_boards().len(), 1);
+    }
+
+    #[test]
+    fn test_update_soc_info_and_board_info_private_methods() {
+        let mut ds = DataStore::new();
+        let node = sample_node("node1", "192.168.10.201");
+        let soc_id = "192.168.10.200".to_string();
+        let board_id = "192.168.10.200".to_string();
+
+        // update_soc_info
+        ds.update_soc_info(soc_id.clone(), node.clone()).unwrap();
+        assert!(ds.socs.contains_key(&soc_id));
+
+        // update_board_info
+        ds.update_board_info(board_id.clone(), node.clone())
+            .unwrap();
+        assert!(ds.boards.contains_key(&board_id));
+    }
+
+    #[test]
+    fn test_update_board_socs_empty_and_nonempty() {
+        let mut ds = DataStore::new();
+        // No socs or boards yet
+        assert!(ds.update_board_socs("not_exist").is_ok());
+
+        // Add soc and board, then update
+        let node = sample_node("node1", "192.168.10.201");
+        let soc_id = "192.168.10.200".to_string();
+        let board_id = "192.168.10.200".to_string();
+        let soc = SocInfo::new(soc_id.clone(), node.clone());
+        let board = BoardInfo::new(board_id.clone(), node.clone());
+        ds.socs.insert(soc_id.clone(), soc);
+        ds.boards.insert(board_id.clone(), board);
+
+        assert!(ds.update_board_socs(&board_id).is_ok());
+        let board_info = ds.get_board_info(&board_id).unwrap();
+        assert_eq!(board_info.socs.len(), 1);
+    }
+
+    #[test]
+    fn test_store_container_info_and_with_node() {
+        let mut ds = DataStore::new();
+        let container = sample_container("c1", "container1");
+
+        // store_container_info (etcd call will fail but shouldn't panic)
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(ds.store_container_info(container.clone()))
+            .unwrap();
+        assert!(ds.containers.contains_key("c1"));
+
+        // store_container_info_with_node
+        rt.block_on(ds.store_container_info_with_node(container.clone(), "node1".to_string()))
+            .unwrap();
+        assert_eq!(ds.container_node_mapping.get("c1").unwrap(), "node1");
+    }
+
+    #[test]
+    fn test_get_container_info_memory_and_etcd_fallback() {
+        let mut ds = DataStore::new();
+        let container = sample_container("c1", "container1");
+        ds.containers.insert("c1".to_string(), container.clone());
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        // Should get from memory
+        let result = rt.block_on(ds.get_container_info("c1"));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().id, "c1");
+
+        // Should fail for non-existent container (etcd fallback will fail)
+        let result = rt.block_on(ds.get_container_info("notfound"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_remove_container_info() {
+        let mut ds = DataStore::new();
+        let container = sample_container("c1", "container1");
+        ds.containers.insert("c1".to_string(), container.clone());
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(ds.remove_container_info("c1")).unwrap();
+        assert!(!ds.containers.contains_key("c1"));
+    }
+
+    #[test]
+    fn test_load_containers_from_etcd_handles_error() {
+        let mut ds = DataStore::new();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        // Should not panic even if etcd fails
+        let result = rt.block_on(ds.load_containers_from_etcd());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_containers_by_node_empty_and_nonempty() {
+        let mut ds = DataStore::new();
+        // Empty
+        assert!(ds.get_containers_by_node("node1").is_empty());
+
+        // Non-empty
+        let container = sample_container("c1", "container1");
+        ds.containers.insert("c1".to_string(), container.clone());
+        ds.container_node_mapping
+            .insert("c1".to_string(), "node1".to_string());
+        let containers = ds.get_containers_by_node("node1");
+        assert_eq!(containers.len(), 1);
+        assert_eq!(containers[0].id, "c1");
+    }
+
+    #[test]
+    fn test_cleanup_node_containers_removes_obsolete() {
+        let mut ds = DataStore::new();
+        let container1 = sample_container("c1", "container1");
+        let container2 = sample_container("c2", "container2");
+        ds.containers.insert("c1".to_string(), container1.clone());
+        ds.containers.insert("c2".to_string(), container2.clone());
+        ds.container_node_mapping
+            .insert("c1".to_string(), "node1".to_string());
+        ds.container_node_mapping
+            .insert("c2".to_string(), "node1".to_string());
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(ds.cleanup_node_containers("node1", &vec!["c1".to_string()]));
+        assert!(ds.containers.contains_key("c1"));
+        assert!(!ds.containers.contains_key("c2"));
+        assert!(ds.container_node_mapping.contains_key("c1"));
+        assert!(!ds.container_node_mapping.contains_key("c2"));
+    }
+
+    #[test]
+    fn test_socinfo_and_boardinfo_new_and_update_with_node() {
+        let node = sample_node("node1", "192.168.10.201");
+        let mut soc = SocInfo::new("socid".to_string(), node.clone());
+        assert_eq!(soc.soc_id, "socid");
+        assert_eq!(soc.nodes.len(), 1);
+
+        let mut board = BoardInfo::new("boardid".to_string(), node.clone());
+        assert_eq!(board.board_id, "boardid");
+        assert_eq!(board.nodes.len(), 1);
+
+        // Add another node
+        let node2 = sample_node("node2", "192.168.10.202");
+        soc.update_with_node(node2.clone());
+        board.update_with_node(node2.clone());
+        assert_eq!(soc.nodes.len(), 2);
+        assert_eq!(board.nodes.len(), 2);
+    }
+
+    #[test]
+    fn test_update_board_info_existing_and_new() {
+        let mut ds = DataStore::new();
+        let node = sample_node("node1", "192.168.10.201");
+        let board_id = "192.168.10.200".to_string();
+
+        // Insert first time (should create new)
+        assert!(ds.update_board_info(board_id.clone(), node.clone()).is_ok());
+        assert!(ds.boards.contains_key(&board_id));
+
+        // Insert again (should update existing)
+        let mut node2 = node.clone();
+        node2.node_name = "node2".to_string();
+        assert!(ds
+            .update_board_info(board_id.clone(), node2.clone())
+            .is_ok());
+        let board = ds.boards.get(&board_id).unwrap();
+        assert!(board.nodes.iter().any(|n| n.node_name == "node2"));
+    }
+
+    #[test]
+    fn test_update_soc_info_existing_and_new() {
+        let mut ds = DataStore::new();
+        let node = sample_node("node1", "192.168.10.201");
+        let soc_id = "192.168.10.200".to_string();
+
+        // Insert first time (should create new)
+        assert!(ds.update_soc_info(soc_id.clone(), node.clone()).is_ok());
+        assert!(ds.socs.contains_key(&soc_id));
+
+        // Insert again (should update existing)
+        let mut node2 = node.clone();
+        node2.node_name = "node2".to_string();
+        assert!(ds.update_soc_info(soc_id.clone(), node2.clone()).is_ok());
+        let soc = ds.socs.get(&soc_id).unwrap();
+        assert!(soc.nodes.iter().any(|n| n.node_name == "node2"));
+    }
+
+    #[test]
+    fn test_update_board_socs_none_and_some() {
+        let mut ds = DataStore::new();
+        // No board present
+        assert!(ds.update_board_socs("notfound").is_ok());
+
+        // Add soc and board, then update
+        let node = sample_node("node1", "192.168.10.201");
+        let soc_id = "192.168.10.200".to_string();
+        let board_id = "192.168.10.200".to_string();
+        let soc = SocInfo::new(soc_id.clone(), node.clone());
+        let board = BoardInfo::new(board_id.clone(), node.clone());
+        ds.socs.insert(soc_id.clone(), soc);
+        ds.boards.insert(board_id.clone(), board);
+
+        assert!(ds.update_board_socs(&board_id).is_ok());
+        let board_info = ds.get_board_info(&board_id).unwrap();
+        assert_eq!(board_info.socs.len(), 1);
+    }
+
+    #[test]
+    fn test_get_all_methods() {
+        let mut ds = DataStore::new();
+        let node = sample_node("node1", "192.168.10.201");
+        let soc = SocInfo::new("192.168.10.200".to_string(), node.clone());
+        let board = BoardInfo::new("192.168.10.200".to_string(), node.clone());
+        let container = sample_container("c1", "container1");
+
+        ds.nodes.insert("node1".to_string(), node.clone());
+        ds.socs.insert("192.168.10.200".to_string(), soc.clone());
+        ds.boards
+            .insert("192.168.10.200".to_string(), board.clone());
+        ds.containers.insert("c1".to_string(), container.clone());
+
+        assert_eq!(ds.get_all_containers().len(), 1);
+        assert_eq!(ds.get_all_nodes().len(), 1);
+        assert_eq!(ds.get_all_socs().len(), 1);
+        assert_eq!(ds.get_all_boards().len(), 1);
+    }
+
+    #[test]
+    fn test_boardinfo_update_with_node_existing_and_new() {
+        let node1 = sample_node("node1", "192.168.10.201");
+        let mut board = BoardInfo::new("boardid".to_string(), node1.clone());
+        assert_eq!(board.nodes.len(), 1);
+
+        // Add new node
+        let node2 = sample_node("node2", "192.168.10.202");
+        board.update_with_node(node2.clone());
+        assert_eq!(board.nodes.len(), 2);
+
+        // Update existing node
+        let mut node2_updated = node2.clone();
+        node2_updated.cpu_usage = 88.0;
+        board.update_with_node(node2_updated.clone());
+        assert_eq!(board.nodes.len(), 2);
+        assert!(board.nodes.iter().any(|n| n.cpu_usage == 88.0));
+    }
+
+    #[test]
+    fn test_aggregated_metrics_trait_empty_and_nonempty() {
+        let mut soc = SocInfo {
+            soc_id: "test".to_string(),
+            nodes: vec![],
+            total_cpu_usage: 0.0,
+            total_cpu_count: 0,
+            total_gpu_count: 0,
+            total_used_memory: 0,
+            total_memory: 0,
+            total_mem_usage: 0.0,
+            total_rx_bytes: 0,
+            total_tx_bytes: 0,
+            total_read_bytes: 0,
+            total_write_bytes: 0,
+            last_updated: SystemTime::now(),
+        };
+        soc.recalculate_totals();
+        assert_eq!(soc.total_cpu_usage, 0.0);
+
+        let node = sample_node("node1", "192.168.10.201");
+        soc.nodes.push(node.clone());
+        soc.recalculate_totals();
+        assert_eq!(soc.total_cpu_usage, 50.0);
+
+        let mut board = BoardInfo {
+            board_id: "test".to_string(),
+            nodes: vec![],
+            socs: vec![],
+            total_cpu_usage: 0.0,
+            total_cpu_count: 0,
+            total_gpu_count: 0,
+            total_used_memory: 0,
+            total_memory: 0,
+            total_mem_usage: 0.0,
+            total_rx_bytes: 0,
+            total_tx_bytes: 0,
+            total_read_bytes: 0,
+            total_write_bytes: 0,
+            last_updated: SystemTime::now(),
+        };
+        board.recalculate_totals();
+        assert_eq!(board.total_cpu_usage, 0.0);
+
+        board.nodes.push(node.clone());
+        board.recalculate_totals();
+        assert_eq!(board.total_cpu_usage, 50.0);
     }
 }

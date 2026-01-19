@@ -11,7 +11,6 @@ use common::pharos_service::{
     RequestNetworkPodRequest, RequestNetworkPodResponse,
 };
 
-use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 
 /// Send request to Pharos to set up network for a pod

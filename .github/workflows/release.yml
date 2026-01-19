@@ -264,7 +264,7 @@ jobs:
       - name: Archive doc folder
         shell: bash
         run: |
-          tar czf doc-archive.tar.gz doc/
+          tar czf doc-archive.tar.gz doc/ README.md
 
       - name: Upload doc archive to release
         uses: svenstaro/upload-release-action@v2

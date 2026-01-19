@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+// SPDX-License-Identifier: Apache-2.0
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
@@ -5,13 +7,9 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
-import { Search, MoreHorizontal, Plus, Database, HardDrive/*, Archive*/, Settings } from "lucide-react";
+import { Search, MoreHorizontal, Plus, Database, HardDrive, /*Archive, */Settings } from "lucide-react"; // 2025-09-23 comment out
 
-interface StorageProps {
-  namespace: string;
-}
-
-export function Storage({ namespace }: StorageProps) {
+export function Storage() {
   const [searchTerm, setSearchTerm] = useState("");
 
   // Mock data
@@ -154,12 +152,12 @@ export function Storage({ namespace }: StorageProps) {
         <div className="relative">
           <div className="flex items-center gap-4 mb-2">
             <div className="w-1 h-8 bg-gradient-to-b from-primary to-primary/80 rounded-full"></div>
-            <h1 className="font-bold text-foreground">
+            <h1 className="font-bold text-foreground text-[20px]">
               PULLPIRI Storage
             </h1>
           </div>
           <p className="text-muted-foreground ml-8">
-            Manage persistent volumes, claims, and storage classes in <span className="font-semibold text-primary">"{namespace}"</span>
+            Manage persistent volumes, claims, and storage classes in your cluster
           </p>
         </div>
         <Button className="bg-primary hover:bg-primary/80 text-primary-foreground shadow-lg hover:shadow-xl transition-all gap-2">

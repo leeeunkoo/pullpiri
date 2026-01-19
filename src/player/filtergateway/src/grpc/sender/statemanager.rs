@@ -65,6 +65,7 @@ impl Default for StateManagerSender {
     }
 }
 
+#[allow(dead_code)]
 impl StateManagerSender {
     /// Creates a new StateManagerSender instance for FilterGateway.
     ///

@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # PICCOLO Clustering System Design Document
 
 **Document No.**: PICCOLO-CLUSTERING-HLD-2025-001  

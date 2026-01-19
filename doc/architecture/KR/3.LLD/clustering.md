@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # PICCOLO 클러스터링 시스템
 
 **문서 번호**: PICCOLO-CLUSTERING-LLD-2025-001  

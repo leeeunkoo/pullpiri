@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # Board/SoC/Node Management REST API Documentation
 
 ## Overview
@@ -27,27 +31,12 @@ http://localhost:8080/api/v1
 - **Response:** `NodeListResponse`
 - **Status Codes:** 200, 500
 
-### Create Node
-
-- **Endpoint:** `POST /nodes`
-- **Description:** Create a new node.
-- **Request Body:** `CreateNodeRequest`
-- **Response:** `NodeInfo`
-- **Status Codes:** 200, 400, 500
-
 ### Get Node Details
 
 - **Endpoint:** `GET /nodes/{name}`
 - **Description:** Get specific node details including logs.
 - **Response:** `NodeInfo` (with logs)
 - **Status Codes:** 200, 404, 500
-
-### Delete Node
-
-- **Endpoint:** `DELETE /nodes/{name}`
-- **Description:** Delete a specific node.
-- **Response:** None
-- **Status Codes:** 204, 500
 
 ### Get Pod Metrics for Node
 
@@ -73,27 +62,12 @@ http://localhost:8080/api/v1
 - **Response:** `SocListResponse`
 - **Status Codes:** 200, 500
 
-### Create SoC
-
-- **Endpoint:** `POST /socs`
-- **Description:** Create a new SoC.
-- **Request Body:** `CreateSocRequest`
-- **Response:** `SocInfo`
-- **Status Codes:** 200, 400, 500
-
 ### Get SoC Details
 
 - **Endpoint:** `GET /socs/{name}`
 - **Description:** Get specific SoC details including logs.
 - **Response:** `SocInfo` (with logs)
 - **Status Codes:** 200, 404, 500
-
-### Delete SoC
-
-- **Endpoint:** `DELETE /socs/{name}`
-- **Description:** Delete a specific SoC.
-- **Response:** None
-- **Status Codes:** 204, 500
 
 ---
 
@@ -110,27 +84,12 @@ http://localhost:8080/api/v1
 - **Response:** `BoardListResponse`
 - **Status Codes:** 200, 500
 
-### Create Board
-
-- **Endpoint:** `POST /boards`
-- **Description:** Create a new board.
-- **Request Body:** `CreateBoardRequest`
-- **Response:** `BoardInfo`
-- **Status Codes:** 200, 400, 500
-
 ### Get Board Details
 
 - **Endpoint:** `GET /boards/{name}`
 - **Description:** Get specific board details including logs.
 - **Response:** `BoardInfo` (with logs)
 - **Status Codes:** 200, 404, 500
-
-### Delete Board
-
-- **Endpoint:** `DELETE /boards/{name}`
-- **Description:** Delete a specific board.
-- **Response:** None
-- **Status Codes:** 204, 500
 
 ---
 
@@ -142,53 +101,6 @@ http://localhost:8080/api/v1
 - **Description:** Synchronize with monitoring server.
 - **Response:** `SuccessResponse`
 - **Status Codes:** 200, 500
-
----
-
-## Request Body Schemas
-
-### CreateNodeRequest
-
-```json
-{
-  "name": "string",
-  "ip": "string",
-  "image": "string",
-  "labels": {
-    "environment": "string",
-    "region": "string",
-    "type": "string"
-  }
-}
-```
-
-### CreateSocRequest
-
-```json
-{
-  "name": "string",
-  "description": "string",
-  "labels": {
-    "architecture": "string",
-    "vendor": "string",
-    "generation": "string"
-  }
-}
-```
-
-### CreateBoardRequest
-
-```json
-{
-  "name": "string",
-  "description": "string",
-  "labels": {
-    "function": "string",
-    "criticality": "string",
-    "location": "string"
-  }
-}
-```
 
 ---
 
@@ -205,12 +117,6 @@ http://localhost:8080/api/v1
 - **400**: Bad Request (invalid request body or missing fields)
 - **404**: Not Found (resource not found)
 - **500**: Internal Server Error (server-side errors, etcd issues)
-
----
-
-## Example Usage
-
-See the "Example Usage" section in the original documentation for sample `curl` commands.
 
 ---
 

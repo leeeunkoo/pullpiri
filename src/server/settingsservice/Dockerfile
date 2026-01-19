@@ -33,7 +33,7 @@ RUN useradd -r -s /bin/false settingsservice
 
 # Copy binary from builder
 COPY --from=builder /app/src/server/target/release/settingsservice /usr/local/bin/
-COPY --from=builder /app/src/server/target/release/settings-cli /usr/local/bin/
+# COPY --from=builder /app/src/server/target/release/settings-cli /usr/local/bin/
 
 # Create configuration directory
 RUN mkdir -p /etc/piccolo && chown settingsservice:settingsservice /etc/piccolo

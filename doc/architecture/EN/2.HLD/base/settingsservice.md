@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # Settings Service Detailed Design Document
 
 **Document Number**: PICCOLO-SETTINGS-2025-001  

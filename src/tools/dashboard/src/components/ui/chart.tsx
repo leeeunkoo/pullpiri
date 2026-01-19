@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+// SPDX-License-Identifier: Apache-2.0
 "use client";
 
 import * as React from "react";
@@ -104,53 +106,31 @@ ${colorConfig
 
 const ChartTooltip = RechartsPrimitive.Tooltip;
 
-type TooltipPayload = {
-  name?: string;
-  value?: number | string;
-  dataKey?: string;
-  color?: string;
-  payload?: Record<string, any>;
-};
-
-type ExtendedTooltipProps = React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
-  React.ComponentProps<"div"> & {
-    hideLabel?: boolean;
-    hideIndicator?: boolean;
-    indicator?: "line" | "dot" | "dashed";
-    nameKey?: string;
-    labelKey?: string;
-    payload?: TooltipPayload[];
-    label?: string;
-  };
-
-function ChartTooltipContent({
-  active,
-  payload,
-  className,
-  indicator = "dot",
-  hideLabel = false,
-  hideIndicator = false,
-  label,
-  labelFormatter,
-  labelClassName,
-  formatter,
-  color,
-  nameKey,
-  labelKey,
-}: ExtendedTooltipProps) {
+function ChartTooltipContent(props: any) { //2025-09-23 comment out
+  const {
+    active,
+    className,
+    indicator = "dot",
+    hideLabel = false,
+    hideIndicator = false,
+    label,
+    labelFormatter,
+    labelClassName,
+    formatter,
+    color,
+    nameKey,
+    labelKey,
+  } = props;
+  const payload: any[] = props.payload || [];
   const { config } = useChart();
 
   const tooltipLabel = React.useMemo(() => {
-    if (hideLabel || !payload || !Array.isArray(payload) || payload.length === 0) {
+    if (hideLabel || !(payload as any[])?.length) {
       return null;
     }
 
-    const [item] = payload;
-    if (!item || typeof item !== "object") {
-      return null;
-    }
-
-    const key = `${labelKey || item.dataKey || item.name || "value"}`;
+    const [item] = payload as any[];
+    const key = `${labelKey || item?.dataKey || item?.name || "value"}`;
     const itemConfig = getPayloadConfigFromPayload(config, item, key);
     const value =
       !labelKey && typeof label === "string"
@@ -180,7 +160,7 @@ function ChartTooltipContent({
     labelKey,
   ]);
 
-  if (!active || !payload || !Array.isArray(payload) || payload.length === 0) {
+  if (!active || !payload?.length) {
     return null;
   }
 
@@ -195,14 +175,10 @@ function ChartTooltipContent({
     >
       {!nestLabel ? tooltipLabel : null}
       <div className="grid gap-1.5">
-        {payload.map((item, index) => {
-          if (!item || typeof item !== "object") {
-            return null;
-          }
-
+  {(payload as any[]).map((item: any, index: any) => { //2025-09-23 comment out
           const key = `${nameKey || item.name || item.dataKey || "value"}`;
           const itemConfig = getPayloadConfigFromPayload(config, item, key);
-          const indicatorColor = color || (item.payload && item.payload.fill) || item.color;
+          const indicatorColor = color || item.payload.fill || item.color;
 
           return (
             <div
@@ -213,13 +189,7 @@ function ChartTooltipContent({
               )}
             >
               {formatter && item?.value !== undefined && item.name ? (
-                formatter(
-                  item.value,
-                  item.name,
-                  item as TooltipPayload,
-                  index,
-                  payload as TooltipPayload[],
-                )
+                formatter(item.value, item.name, item, index, item.payload)
               ) : (
                 <>
                   {itemConfig?.icon ? (
@@ -279,20 +249,19 @@ const ChartLegend = RechartsPrimitive.Legend;
 function ChartLegendContent({
   className,
   hideIcon = false,
-  payload,
   verticalAlign = "bottom",
   nameKey,
-}: React.ComponentProps<"div"> &
-  {
-    payload?: RechartsPrimitive.LegendPayload[];
+  payload,
+}: React.ComponentProps<"div"> & {
     verticalAlign?: string;
-  } & {
     hideIcon?: boolean;
     nameKey?: string;
+    payload?: any[];
   }) {
   const { config } = useChart();
 
-  if (!payload || !Array.isArray(payload) || payload.length === 0) {
+  // payload는 파라미터에서 받아오므로 중복 선언하지 않고, 아래에서 (payload as any[])로 사용
+  if (!(payload as any[])?.length) {
     return null;
   }
 
@@ -304,7 +273,7 @@ function ChartLegendContent({
         className,
       )}
     >
-      {payload.map((item: RechartsPrimitive.LegendPayload) => {
+  {(payload as any[]).map((item: any) => {
         const key = `${nameKey || item.dataKey || "value"}`;
         const itemConfig = getPayloadConfigFromPayload(config, item, key);
 

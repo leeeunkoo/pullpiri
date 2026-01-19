@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+# SPDX-License-Identifier: Apache-2.0
 
 echo "1: eco, 2:performance, 3:charging, 4: anti-enable, 5: anti-disable :"
 read input

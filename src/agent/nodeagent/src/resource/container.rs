@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 use super::{get, Container, ContainerError, ContainerInspect, ContainerStats};
 use common::monitoringserver::ContainerInfo;
 use futures::future::try_join_all;
@@ -12,8 +16,53 @@ pub async fn inspect(hostname: String) -> std::result::Result<Vec<ContainerInfo>
         let host_name = hostname.clone();
         async move {
             let inspect = get_inspect(&id).await?;
-            let stats = get_stats(&id).await?;
-
+            let mut stats_map = HashMap::new();
+            if inspect.State.Status == "running" {
+                match get_stats(&id).await {
+                    Ok(stats) => {
+                        stats_map.insert(
+                            "CpuTotalUsage".to_string(),
+                            stats.cpu_stats.cpu_usage.total_usage.to_string(),
+                        );
+                        stats_map.insert(
+                            "CpuUsageInKernelMode".to_string(),
+                            stats.cpu_stats.cpu_usage.usage_in_kernelmode.to_string(),
+                        );
+                        stats_map.insert(
+                            "CpuUsageInUserMode".to_string(),
+                            stats.cpu_stats.cpu_usage.usage_in_usermode.to_string(),
+                        );
+                        stats_map.insert(
+                            "MemoryUsage".to_string(),
+                            stats.memory_stats.usage.to_string(),
+                        );
+                        stats_map.insert(
+                            "MemoryLimit".to_string(),
+                            stats.memory_stats.limit.to_string(),
+                        );
+                        stats_map.insert(
+                            "Networks".to_string(),
+                            stats
+                                .networks
+                                .as_ref()
+                                .map(|nets| {
+                                    nets.iter()
+                                        .map(|(name, net)| format!("{}: {{{}}}", name, net))
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                })
+                                .unwrap_or_else(|| "None".to_string()),
+                        );
+                    }
+                    Err(e) => {
+                        println!("Failed to get stats for {}: {:?}", id, e);
+                        stats_map.insert("Status".to_string(), "StatsUnavailable".to_string());
+                    }
+                }
+            } else {
+                println!("Container {} is not running, stats unavailable.", id);
+                stats_map.insert("Status".to_string(), "StatsUnavailable".to_string());
+            }
             let mut state_map = HashMap::new();
             state_map.insert("Status".to_string(), inspect.State.Status);
             state_map.insert("Running".to_string(), inspect.State.Running.to_string());
@@ -63,43 +112,6 @@ pub async fn inspect(hostname: String) -> std::result::Result<Vec<ContainerInfo>
             } else {
                 HashMap::new()
             };
-
-            let mut stats_map = HashMap::new();
-            stats_map.insert(
-                "CpuTotalUsage".to_string(),
-                stats.cpu_stats.cpu_usage.total_usage.to_string(),
-            );
-            stats_map.insert(
-                "CpuUsageInKernelMode".to_string(),
-                stats.cpu_stats.cpu_usage.usage_in_kernelmode.to_string(),
-            );
-            stats_map.insert(
-                "CpuUsageInUserMode".to_string(),
-                stats.cpu_stats.cpu_usage.usage_in_usermode.to_string(),
-            );
-            stats_map.insert(
-                "MemoryUsage".to_string(),
-                stats.memory_stats.usage.to_string(),
-            );
-            stats_map.insert(
-                "MemoryLimit".to_string(),
-                stats.memory_stats.limit.to_string(),
-            );
-
-            stats_map.insert(
-                "Networks".to_string(),
-                stats
-                    .networks
-                    .as_ref()
-                    .map(|nets| {
-                        nets.iter()
-                            .map(|(name, net)| format!("{}: {{{}}}", name, net))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    })
-                    .unwrap_or_else(|| "None".to_string()),
-            );
-
             Ok::<ContainerInfo, ContainerError>(ContainerInfo {
                 id: inspect.Id,
                 names: vec![inspect.Name],
@@ -120,22 +132,21 @@ pub async fn inspect(hostname: String) -> std::result::Result<Vec<ContainerInfo>
 }
 
 pub async fn get_list() -> Result<Vec<Container>> {
-    let body = get("/v1.0.0/libpod/containers/json").await?;
+    let body = get("/v1.0.0/libpod/containers/json?all=true").await?;
 
     let containers: Vec<Container> = serde_json::from_slice(&body)?;
-    //println!("{:#?}", containers);
-
+    //println!("get list {:#?}", containers);
     Ok(containers)
 }
 
 pub async fn get_inspect(
     id: &str,
 ) -> std::result::Result<ContainerInspect, Box<dyn std::error::Error + Send + Sync>> {
-    let path = &format!("/v1.0.0/libpod/containers/{}/json", id);
+    let path = &format!("/v1.0.0/libpod/containers/{}/json?all=true", id);
     let body = get(path).await?;
 
     let inspect: ContainerInspect = serde_json::from_slice(&body)?;
-    //println!("{:#?}", container_inspect);
+    //println!("inspect in container.rs{:#?}", inspect);
 
     Ok(inspect)
 }
@@ -147,7 +158,7 @@ pub async fn get_stats(
     let body = get(path).await?;
 
     let stats: ContainerStats = serde_json::from_slice(&body)?;
-    // println!("{:#?}", stats);
+    //println!("{:#?}", stats);
 
     Ok(stats)
 }

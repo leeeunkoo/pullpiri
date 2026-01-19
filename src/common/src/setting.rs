@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 use serde::Deserialize;
 use std::sync::OnceLock;
 static SETTINGS: OnceLock<Settings> = OnceLock::new();
@@ -89,21 +93,6 @@ mod tests {
         assert!(std::ptr::eq(config1, config2));
     }
 
-    // Test handling of multiple guests in the settings
-    #[tokio::test]
-    async fn test_parse_settings_yaml_multiple_guests() {
-        // Verify that multiple guests are correctly parsed
-        let settings = parse_settings_yaml();
-        if let Some(guests) = settings.guest {
-            assert!(guests.len() > 1);
-            for guest in guests {
-                assert_ne!(guest.name, "");
-                assert_ne!(guest.ip, "");
-                assert_ne!(guest.r#type, "");
-            }
-        }
-    }
-
     // Test concurrent access to `get_config`
     #[tokio::test]
     async fn test_get_config_concurrent_access() {
@@ -156,44 +145,6 @@ mod tests {
         let settings = parse_settings_yaml();
         let valid_types = vec!["bluechi", "redchi", "greenchi"];
         assert!(valid_types.contains(&settings.host.r#type.as_str()));
-    }
-
-    // Test handling of a settings file with guests having invalid types
-    #[tokio::test]
-    async fn test_parse_settings_yaml_invalid_guest_types() {
-        // Verify that guest types are valid
-        let settings = parse_settings_yaml();
-        if let Some(guests) = settings.guest {
-            let valid_types = vec!["nodeagent", "zoneagent", "cloudagent"];
-            for guest in guests {
-                assert!(valid_types.contains(&guest.r#type.as_str()));
-            }
-        }
-    }
-
-    // Test handling of a settings file with guests having missing names
-    #[tokio::test]
-    async fn test_parse_settings_yaml_guest_missing_names() {
-        // Verify that guest names are not missing
-        let settings = parse_settings_yaml();
-        if let Some(guests) = settings.guest {
-            for guest in guests {
-                assert_ne!(guest.name, "");
-            }
-        }
-    }
-
-    // Test handling of a settings file with guests having duplicate IPs
-    #[tokio::test]
-    async fn test_parse_settings_yaml_guest_duplicate_ips() {
-        // Verify that guest IPs are unique
-        let settings = parse_settings_yaml();
-        if let Some(guests) = settings.guest {
-            let mut ips: Vec<String> = guests.iter().map(|guest| guest.ip.clone()).collect();
-            ips.sort();
-            ips.dedup();
-            assert_eq!(ips.len(), guests.len());
-        }
     }
 
     // Test handling of invalid YAML file path

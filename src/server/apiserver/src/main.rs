@@ -21,7 +21,12 @@ mod node;
 mod route;
 
 /// Main function of Piccolo API Server
-#[cfg(not(tarpaulin_include))]
+#[cfg(feature = "tarpaulin_include")]
+fn main() {
+    // Dummy main for coverage builds
+    println!("Tarpaulin coverage build: main function stub.");
+}
+#[cfg(not(feature = "tarpaulin_include"))]
 #[tokio::main]
 async fn main() {
     manager::initialize().await

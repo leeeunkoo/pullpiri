@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail  # Exit on error, undefined variables, or pipe failure
 
 # Initialize log and report files
@@ -25,6 +27,9 @@ AGENT_MANIFEST="src/agent/Cargo.toml"
 TOOLS_MANIFEST="src/tools/Cargo.toml"
 APISERVER_MANIFEST="src/server/apiserver/Cargo.toml"
 FILTERGATEWAY_MANIFEST="src/player/filtergateway/Cargo.toml"
+ACTIONCONTROLLER_MANIFEST="src/player/actioncontroller/Cargo.toml"
+SETTINGS_SERVICE_MANIFEST="src/server/settingsservice/Cargo.toml"
+MONITORING_SERVER_MANIFEST="src/server/monitoringserver/Cargo.toml"
 
 # Function to run cargo-deny on a given manifest and log results
 run_deny() {
@@ -58,11 +63,14 @@ run_deny() {
 # Run cargo-deny on desired manifests
 # Uncomment manifests as needed
 
-#[[ -f "$COMMON_MANIFEST" ]]        && run_deny "$COMMON_MANIFEST" "common"        || echo "::warning ::$COMMON_MANIFEST not found, skipping..."
-#[[ -f "$AGENT_MANIFEST" ]]         && run_deny "$AGENT_MANIFEST" "agent"          || echo "::warning ::$AGENT_MANIFEST not found, skipping..."
-#[[ -f "$TOOLS_MANIFEST" ]]         && run_deny "$TOOLS_MANIFEST" "tools"          || echo "::warning ::$TOOLS_MANIFEST not found, skipping..."
+[[ -f "$COMMON_MANIFEST" ]]        && run_deny "$COMMON_MANIFEST" "common"        || echo "::warning ::$COMMON_MANIFEST not found, skipping..."
+[[ -f "$AGENT_MANIFEST" ]]         && run_deny "$AGENT_MANIFEST" "agent"          || echo "::warning ::$AGENT_MANIFEST not found, skipping..."
+[[ -f "$TOOLS_MANIFEST" ]]         && run_deny "$TOOLS_MANIFEST" "tools"          || echo "::warning ::$TOOLS_MANIFEST not found, skipping..."
 [[ -f "$APISERVER_MANIFEST" ]]     && run_deny "$APISERVER_MANIFEST" "apiserver"  || echo "::warning ::$APISERVER_MANIFEST not found, skipping..."
-#[[ -f "$FILTERGATEWAY_MANIFEST" ]] && run_deny "$FILTERGATEWAY_MANIFEST" "filtergateway" || echo "::warning ::$FILTERGATEWAY_MANIFEST not found, skipping..."
+[[ -f "$FILTERGATEWAY_MANIFEST" ]] && run_deny "$FILTERGATEWAY_MANIFEST" "filtergateway" || echo "::warning ::$FILTERGATEWAY_MANIFEST not found, skipping..."
+[[ -f "$ACTIONCONTROLLER_MANIFEST" ]] && run_deny "$ACTIONCONTROLLER_MANIFEST" "actioncontroller" || echo "::warning ::$ACTIONCONTROLLER_MANIFEST not found, skipping..."
+#[[ -f "$SETTINGS_SERVICE_MANIFEST" ]] && run_deny "$SETTINGS_SERVICE_MANIFEST" "settingsservice" || echo "::warning ::$SETTINGS_SERVICE_MANIFEST not found, skipping..."
+[[ -f "$MONITORING_SERVER_MANIFEST" ]] && run_deny "$MONITORING_SERVER_MANIFEST" "monitoringserver" || echo "::warning ::$MONITORING_SERVER_MANIFEST not found, skipping..."
 
 # Print final summary report to console and log
 echo -e "\n📄 Summary:" | tee -a "$LOG_FILE"

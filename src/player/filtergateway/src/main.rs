@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 mod filter;
 mod grpc;
 mod manager;
@@ -18,7 +22,7 @@ use filtergateway::ScenarioParameter;
 use filtergateway::{initialize, launch_manager};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-#[cfg(not(tarpaulin_include))]
+#[cfg(not(feature = "tarpaulin_include"))]
 #[tokio::main]
 async fn main() {
     // Initialize tracing subscriber for logging
@@ -31,6 +35,11 @@ async fn main() {
     let grpc = initialize(tx_grpc);
 
     tokio::join!(mgr, grpc);
+}
+#[cfg(feature = "tarpaulin_include")]
+fn main() {
+    // Dummy main for coverage builds
+    println!("Tarpaulin coverage build: main function stub.");
 }
 //Unit Test Cases
 #[cfg(test)]

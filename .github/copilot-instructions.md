@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # Pullpiri (Vehicle Service Orchestrator)
 
 **ALWAYS reference these instructions first. If you encounter unexpected information not covered here, you may: (1) search the project documentation, codebase, or official resources; (2) use only the bash commands explicitly listed in this document or standard diagnostic commands (e.g., `ls`, `cat`, `pwd`). If these steps do not resolve your issue, escalate by contacting a maintainer or opening an issue.**

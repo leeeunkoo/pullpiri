@@ -51,6 +51,7 @@ pub struct Container {
     command: Option<Vec<String>>,
     workingDir: Option<String>,
     resources: Option<Resources>,
+    securityContext: Option<SecurityContext>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -85,6 +86,7 @@ pub struct Port {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct Resources {
     requests: Option<Requests>,
+    limits: Option<Limits>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -93,12 +95,30 @@ pub struct Requests {
     memory: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct Limits {
+    cpu: Option<String>,
+    memory: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct SecurityContext {
+    privileged: Option<bool>,
+    capabilities: Option<Capabilities>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct Capabilities {
+    add: Option<Vec<String>>,
+    drop: Option<Vec<String>>,
+}
+
 impl PodSpec {
     /// Returns the image of the first container in the PodSpec.
     /// If no containers are present, returns `None`.
     pub fn get_image(&self) -> Option<&str> {
         self.containers
-            .get(0)
+            .first()
             .map(|container| container.image.as_str())
     }
 
@@ -125,6 +145,7 @@ mod tests {
             command: None,
             workingDir: None,
             resources: None,
+            securityContext: None,
         };
         let container2 = Container {
             name: String::from("container-2"),
@@ -135,6 +156,7 @@ mod tests {
             command: None,
             workingDir: None,
             resources: None,
+            securityContext: None,
         };
         let podspec = PodSpec {
             hostNetwork: None,
@@ -178,6 +200,7 @@ mod tests {
             command: None,
             workingDir: None,
             resources: None,
+            securityContext: None,
         };
         let podspec = PodSpec {
             hostNetwork: None,
@@ -312,6 +335,7 @@ mod tests {
             command: None,
             workingDir: None,
             resources: None,
+            securityContext: None,
         };
         let podspec = PodSpec {
             hostNetwork: None,

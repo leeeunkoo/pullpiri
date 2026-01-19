@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 // Module for loading DDS settings
 use serde_yaml;
 use std::fs;
@@ -22,8 +26,6 @@ pub fn load_dds_settings() -> Result<(PathBuf, i32, Option<String>), Box<dyn std
         .map(|p| p.join("src/settings.yaml"))
         .ok_or("Failed to resolve project root for settings.yaml")?;
 
-    let mut settings_content = String::new();
-
     if !settings_path.exists() {
         println!("No settings file found, using defaults");
         return Ok((default_idl_dir, default_domain_id, default_out_dir));
@@ -31,7 +33,8 @@ pub fn load_dds_settings() -> Result<(PathBuf, i32, Option<String>), Box<dyn std
 
     // Read settings file
     println!("Reading settings from: {:?}", settings_path);
-    settings_content = fs::read_to_string(&settings_path)?;
+    // let mut settings_content = String::new();
+    let settings_content = fs::read_to_string(&settings_path)?;
 
     // Parse JSON or YAML
     let settings: serde_yaml::Value = serde_yaml::from_str(&settings_content)?;
@@ -75,7 +78,7 @@ pub fn load_dds_settings() -> Result<(PathBuf, i32, Option<String>), Box<dyn std
                         "Converting relative path '{}' to absolute within build directory",
                         dir
                     );
-                    format!("{}", out_dir)
+                    out_dir.to_string()
                 })
             }
         });

@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 pub mod container;
 pub mod nodeinfo;
 
@@ -99,6 +103,21 @@ pub struct ContainerState {
     pub FinishedAt: String,
 }
 
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+pub enum EntryPoint {
+    String(String),
+    Array(Vec<String>),
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+pub enum Command {
+    String(String),
+    Array(Vec<String>),
+}
+
+// Update ContainerConfig to use Option<Command> for Cmd
 #[allow(non_snake_case, unused)]
 #[derive(Deserialize, Debug)]
 pub struct ContainerConfig {
@@ -113,11 +132,11 @@ pub struct ContainerConfig {
     pub OpenStdin: bool,
     pub StdinOnce: bool,
     pub Env: Option<Vec<String>>,
-    pub Cmd: Option<Vec<String>>,
+    pub Cmd: Option<Command>,
     pub Image: String,
     pub Volumes: Option<HashMap<String, serde_json::Value>>,
     pub WorkingDir: String,
-    pub Entrypoint: String,
+    pub Entrypoint: Option<EntryPoint>,
     pub OnBuild: Option<Vec<String>>,
     pub Labels: Option<HashMap<String, String>>,
     pub Annotations: Option<HashMap<String, String>>,

@@ -4,7 +4,6 @@
 .PHONY: default build
 build:
 	cargo build --manifest-path=src/common/Cargo.toml
-	cargo build --manifest-path=src/agent/Cargo.toml
 	cargo build --manifest-path=src/player/Cargo.toml
 	cargo build --manifest-path=src/server/Cargo.toml
 	cargo build --manifest-path=src/tools/Cargo.toml
@@ -12,7 +11,6 @@ build:
 .PHONY: release
 release:
 	cargo build --manifest-path=src/common/Cargo.toml --release
-	cargo build --manifest-path=src/agent/Cargo.toml --release
 	cargo build --manifest-path=src/player/Cargo.toml --release
 	cargo build --manifest-path=src/server/Cargo.toml --release
 	cargo build --manifest-path=src/tools/Cargo.toml --release
@@ -20,7 +18,6 @@ release:
 .PHONY: clean
 clean:
 	cargo clean --manifest-path=src/common/Cargo.toml
-	cargo clean --manifest-path=src/agent/Cargo.toml
 	cargo clean --manifest-path=src/player/Cargo.toml
 	cargo clean --manifest-path=src/server/Cargo.toml
 	cargo clean --manifest-path=src/tools/Cargo.toml
@@ -66,14 +63,14 @@ install:
 	-mkdir -p /etc/containers/systemd/piccolo/etcd-data/
 	-cp -r ./src/settings.yaml /etc/containers/systemd/piccolo/
 	-cp -r ./containers/piccolo-*.* /etc/containers/systemd/piccolo/
+	-cp -r ./scripts/update_server_ip.sh /etc/containers/systemd/piccolo/
+	
 	systemctl daemon-reload
 	systemctl start piccolo-server
-	systemctl start piccolo-agent
 	systemctl start piccolo-player
 
 .PHONY: uninstall
 uninstall:
-	-systemctl stop piccolo-agent
 	-systemctl stop piccolo-player
 	-systemctl stop piccolo-server
 	systemctl daemon-reload

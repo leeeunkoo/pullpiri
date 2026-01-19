@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 use common::Result;
 
 // Import the generated protobuf code from actioncontroller.proto
@@ -10,6 +14,12 @@ use common::actioncontroller::action_controller_connection_client::ActionControl
 /// Sender for making gRPC requests to ActionController
 #[derive(Clone)]
 pub struct FilterGatewaySender {}
+
+impl Default for FilterGatewaySender {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl FilterGatewaySender {
     /// Create a new FilterGatewaySender

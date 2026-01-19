@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # Settings Service 상세 설계 문서 (LLD)
 
 **문서 번호**: PICCOLO-SETTINGS-LLD-2025-001  

@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 use common::Result;
 use std::collections::HashMap;
 
@@ -6,14 +10,14 @@ use std::collections::HashMap;
 /// Handles workload operations for nodes managed by NodeAgent,
 /// making gRPC calls to the NodeAgent service to perform
 /// operations like creating, starting, stopping, and deleting workloads.
-
+#[allow(dead_code)]
 pub struct NodeAgentRuntime {
     /// Connection information for each NodeAgent
     node_connections: HashMap<String, String>,
     /// Cache of workload information per node
     workload_cache: HashMap<String, String>,
 }
-
+#[allow(dead_code)]
 impl NodeAgentRuntime {
     /// Create a new NodeAgentRuntime instance
     ///
@@ -71,6 +75,7 @@ impl NodeAgentRuntime {
     /// - The scenario definition is invalid
     /// - The NodeAgent API call fails
     /// - The workload already exists
+    #[allow(unused_variables)]
     async fn create_workload(&self, scenario_name: &str) -> Result<()> {
         // TODO: Implementation
         Ok(())
@@ -94,6 +99,7 @@ impl NodeAgentRuntime {
     /// Returns an error if:
     /// - The workload does not exist
     /// - The NodeAgent API call fails
+    #[allow(unused_variables)]
     async fn delete_workload(&self, scenario_name: &str) -> Result<()> {
         // TODO: Implementation
 
@@ -118,6 +124,7 @@ impl NodeAgentRuntime {
     /// Returns an error if:
     /// - The workload does not exist
     /// - The NodeAgent API call fails
+    #[allow(unused_variables)]
     async fn restart_workload(&self, scenario_name: &str) -> Result<()> {
         // TODO: Implementation
         Ok(())
@@ -142,6 +149,7 @@ impl NodeAgentRuntime {
     /// - The workload does not exist
     /// - The workload is not in a pausable state
     /// - The NodeAgent API call fails
+    #[allow(unused_variables)]
     async fn pause_workload(&self, scenario_name: &str) -> Result<()> {
         // TODO: Implementation
         Ok(())
@@ -166,6 +174,7 @@ impl NodeAgentRuntime {
     /// - The workload does not exist
     /// - The workload is already running
     /// - The NodeAgent API call fails
+    #[allow(unused_variables)]
     pub async fn start_workload(&self, scenario_name: &str) -> Result<()> {
         // TODO: Implementation
         Ok(())
@@ -190,6 +199,7 @@ impl NodeAgentRuntime {
     /// - The workload does not exist
     /// - The workload is already stopped
     /// - The NodeAgent API call fails
+    #[allow(unused_variables)]
     pub async fn stop_workload(&self, scenario_name: &str) -> Result<()> {
         // TODO: Implementation
         Ok(())
@@ -200,7 +210,6 @@ impl NodeAgentRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::Result;
 
     use tokio;
 

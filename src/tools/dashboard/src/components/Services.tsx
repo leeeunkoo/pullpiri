@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+// SPDX-License-Identifier: Apache-2.0
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
@@ -7,11 +9,7 @@ import { Input } from "./ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Search, MoreHorizontal, ExternalLink, Copy } from "lucide-react";
 
-interface ServicesProps {
-  namespace: string;
-}
-
-export function Services({ namespace }: ServicesProps) {
+export function Services() {
   const [searchTerm, setSearchTerm] = useState("");
 
   // Mock data
@@ -132,12 +130,12 @@ export function Services({ namespace }: ServicesProps) {
         <div className="relative">
           <div className="flex items-center gap-4 mb-2">
             <div className="w-1 h-8 bg-gradient-to-b from-primary to-primary/80 rounded-full"></div>
-            <h1 className="font-bold text-foreground">
+            <h1 className="font-bold text-foreground text-[20px]">
               PULLPIRI Services & Networking
             </h1>
           </div>
           <p className="text-muted-foreground ml-8">
-            Manage services, ingresses, and network policies in <span className="font-semibold text-primary">"{namespace}"</span>
+            Manage services, ingresses, and network policies in your cluster
           </p>
         </div>
         <Button className="bg-primary hover:bg-primary/80 text-primary-foreground shadow-lg hover:shadow-xl transition-all">

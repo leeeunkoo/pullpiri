@@ -62,7 +62,7 @@ impl Default for StateManagerSender {
         Self::new()
     }
 }
-
+#[allow(dead_code)]
 impl StateManagerSender {
     /// Creates a new StateManagerSender instance.
     ///

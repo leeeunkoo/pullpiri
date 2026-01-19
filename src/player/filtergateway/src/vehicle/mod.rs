@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 pub mod dds;
 
 use common::Result;
@@ -7,11 +11,12 @@ use tokio::sync::mpsc::Sender;
 /// Vehicle data management module
 ///
 /// Manages vehicle data through DDS communication
+#[allow(dead_code)]
 pub struct VehicleManager {
     /// DDS Manager instance
     dds_manager: dds::DdsManager,
 }
-
+#[allow(dead_code)]
 impl VehicleManager {
     /// Creates a new VehicleManager
     ///
@@ -38,10 +43,9 @@ impl VehicleManager {
             Err(e) => {
                 log::warn!("Failed to initialize DDS manager with settings file: {}. Using default settings.", e);
                 // 기본 설정 적용
+                self.set_domain_id(100); // Set default domain ID
             }
         }
-        self.set_domain_id(100); // Set default domain ID
-
         Ok(())
     }
 
@@ -107,7 +111,6 @@ impl VehicleManager {
     /// # Arguments
     ///
     /// * `domain_id` - Domain ID to use for DDS communication
-
     pub fn set_domain_id(&mut self, domain_id: i32) {
         self.dds_manager.set_domain_id(domain_id);
     }

@@ -1,3 +1,7 @@
+<!--
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+-->
 # Pullpiri Coding Specification
 
 Our Pullpiri is developed using the Rust Programming language for the language semantics and rust usage the developers shall refer and use the standard rust documentation publicly available

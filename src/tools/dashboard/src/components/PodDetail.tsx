@@ -1,28 +1,29 @@
-//import { useState } from "react";
+// SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+// SPDX-License-Identifier: Apache-2.0
+//import { useState } from "react"; // 2025-09-23 comment out
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-//import { Separator } from "./ui/separator";
+// import { Separator } from "./ui/separator"; // 2025-09-23 comment out
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { ScrollArea } from "./ui/scroll-area";
-import { 
-  ArrowLeft, 
-  Box, 
-  Copy, 
-  Download, 
-  //Play, 
-  //Square, 
-  RotateCcw, 
-  Terminal, 
-  FileText, 
+import {
+  ArrowLeft,
+  Box,
+  Copy,
+  Download,
+  //Play,  // 2025-09-23 comment out
+  //Square, // 2025-09-23 comment out
+  RotateCcw,
+  Terminal,
+  FileText,
   Activity,
-  Clock,
   Server,
   Cpu,
   MemoryStick,
-  //Network,
-  AlertCircle
+  //Network, // 2025-09-23 comment out
+  AlertCircle,
 } from "lucide-react";
 
 interface PodDetailProps {
@@ -158,67 +159,7 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
     }
   ];
 
-  const conditions = [
-    {
-      type: "Initialized",
-      status: "True",
-      lastProbeTime: "null",
-      lastTransitionTime: "2024-01-15T10:30:45Z",
-      reason: "PodCompleted"
-    },
-    {
-      type: "Ready",
-      status: podInfo.status === "Running" ? "True" : "False",
-      lastProbeTime: "null",
-      lastTransitionTime: "2024-01-15T10:31:02Z",
-      reason: "ContainersReady"
-    },
-    {
-      type: "ContainersReady",
-      status: podInfo.status === "Running" ? "True" : "False",
-      lastProbeTime: "null",
-      lastTransitionTime: "2024-01-15T10:31:02Z",
-      reason: "ContainersReady"
-    },
-    {
-      type: "PodScheduled",
-      status: "True",
-      lastProbeTime: "null",
-      lastTransitionTime: "2024-01-15T10:30:45Z",
-      reason: "PodScheduled"
-    }
-  ];
 
-  const events = [
-    {
-      type: "Normal",
-      reason: "Scheduled",
-      message: `Successfully assigned default/${podName} to ${podInfo.node}`,
-      firstTimestamp: "5m ago",
-      count: 1
-    },
-    {
-      type: "Normal",
-      reason: "Pulled",
-      message: `Container image "${podInfo.image}" already present on machine`,
-      firstTimestamp: "5m ago",
-      count: 1
-    },
-    {
-      type: "Normal",
-      reason: "Created",
-      message: "Created container",
-      firstTimestamp: "5m ago",
-      count: 1
-    },
-    {
-      type: "Normal",
-      reason: "Started",
-      message: "Started container",
-      firstTimestamp: "5m ago",
-      count: 1
-    }
-  ];
 
   const logs = [
     "2024-01-15T10:31:02.123Z [INFO] Application starting...",
@@ -261,29 +202,20 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
     }
   };
 
-  const getConditionBadge = (status: string) => {
-    return status === "True" ? (
-      <Badge className="bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200">
-        True
-      </Badge>
-    ) : (
-      <Badge className="bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-200">
-        False
-      </Badge>
-    );
-  };
+
 
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Button
-            variant="ghost"
-            size="sm"
+            variant="outline"
+            size="default"
             onClick={onBack}
-            className="p-2 hover:bg-muted rounded-lg"
+            className="px-5 py-3 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 border-slate-300 dark:border-slate-500 hover:border-slate-400 dark:hover:border-slate-400 hover:shadow-lg transition-all duration-200 gap-2 shadow-md cursor-pointer hover:scale-105 active:scale-95 font-medium text-slate-800 dark:text-slate-100"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-5 h-5" />
+            <span>Back to Workloads</span>
           </Button>
           <div className="relative">
             <div className="flex items-center gap-4 mb-2">
@@ -293,7 +225,7 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
               </h1>
             </div>
             <p className="text-muted-foreground ml-8">
-              <span className="font-semibold text-primary">{podName}</span> in namespace <span className="font-semibold text-primary">"{podInfo.namespace}"</span>
+              Detailed view and management of pod <span className="font-semibold text-primary">{podName}</span>
             </p>
           </div>
         </div>
@@ -399,8 +331,8 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
                   <p className="font-mono">{podInfo.name}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Namespace</p>
-                  <p className="font-mono">{podInfo.namespace}</p>
+                  <p className="text-muted-foreground">Image</p>
+                  <p className="font-mono">{podInfo.image}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Age</p>
@@ -467,7 +399,7 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
           </div>
         </div>
         <div className="space-y-6">
-          {containers.map((container/*, index*/) => (
+          {containers.map((container/*, index*/) => (  // 2025-09-23 comment out
             <Card key={container.name} className="bg-card/80 backdrop-blur-sm border-border/20 shadow-xl">
               <CardHeader>
                 <div className="flex items-center gap-3">
@@ -661,91 +593,7 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
         </div>
       </div>
 
-      {/* Conditions Section */}
-      <div>
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <Activity className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <div>
-            <h2 className="text-foreground">Pod Conditions</h2>
-            <p className="text-muted-foreground text-sm">Current status conditions of the pod</p>
-          </div>
-        </div>
-        <Card className="bg-card/80 backdrop-blur-sm border-border/20 shadow-xl">
-          <CardContent className="pt-6">
-            <div className="overflow-hidden rounded-xl border border-border/30">
-              <Table>
-                <TableHeader className="bg-muted/80">
-                  <TableRow className="border-border/30">
-                    <TableHead className="font-semibold text-foreground">Type</TableHead>
-                    <TableHead className="font-semibold text-foreground">Status</TableHead>
-                    <TableHead className="font-semibold text-foreground">Last Transition Time</TableHead>
-                    <TableHead className="font-semibold text-foreground">Reason</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {conditions.map((condition) => (
-                    <TableRow key={condition.type} className="border-border/30">
-                      <TableCell className="font-medium text-foreground">{condition.type}</TableCell>
-                      <TableCell>{getConditionBadge(condition.status)}</TableCell>
-                      <TableCell className="font-mono text-sm text-muted-foreground">{condition.lastTransitionTime}</TableCell>
-                      <TableCell className="text-sm">{condition.reason}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
 
-      {/* Events Section */}
-      <div>
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <Clock className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <div>
-            <h2 className="text-foreground">Recent Events</h2>
-            <p className="text-muted-foreground text-sm">Events related to this pod</p>
-          </div>
-        </div>
-        <Card className="bg-card/80 backdrop-blur-sm border-border/20 shadow-xl">
-          <CardContent className="pt-6">
-            <div className="overflow-hidden rounded-xl border border-border/30">
-              <Table>
-                <TableHeader className="bg-muted/80">
-                  <TableRow className="border-border/30">
-                    <TableHead className="font-semibold text-foreground">Type</TableHead>
-                    <TableHead className="font-semibold text-foreground">Reason</TableHead>
-                    <TableHead className="font-semibold text-foreground">Message</TableHead>
-                    <TableHead className="font-semibold text-foreground">First Seen</TableHead>
-                    <TableHead className="font-semibold text-foreground">Count</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {events.map((event, index) => (
-                    <TableRow key={index} className="border-border/30">
-                      <TableCell>
-                        <Badge className="bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-200">
-                          {event.type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-medium text-foreground">{event.reason}</TableCell>
-                      <TableCell className="text-sm max-w-md truncate" title={event.message}>{event.message}</TableCell>
-                      <TableCell className="text-muted-foreground">{event.firstTimestamp}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">{event.count}</Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
 
       {/* Logs Section */}
       <div>

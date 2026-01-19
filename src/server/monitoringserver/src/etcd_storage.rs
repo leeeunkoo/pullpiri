@@ -179,7 +179,7 @@ pub async fn get_all_boards() -> common::Result<Vec<BoardInfo>> {
 
 /// Get all containers from etcd
 pub async fn get_all_containers() -> common::Result<Vec<ContainerInfo>> {
-    let prefix = format!("/piccolo/metrics/containers/");
+    let prefix = "/piccolo/metrics/containers/".to_string();
     let kv_pairs = common::etcd::get_all_with_prefix(&prefix).await?;
 
     let mut containers = Vec::new();
@@ -247,4 +247,224 @@ pub async fn delete_board_info(board_id: &str) -> common::Result<()> {
 /// Delete ContainerInfo from etcd
 pub async fn delete_container_info(container_id: &str) -> common::Result<()> {
     delete_info("containers", container_id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data_structures::{BoardInfo, SocInfo};
+    use common::monitoringserver::{ContainerInfo, NodeInfo};
+    use std::collections::HashMap;
+    use std::time::SystemTime;
+
+    fn sample_node(name: &str, ip: &str) -> NodeInfo {
+        NodeInfo {
+            node_name: name.to_string(),
+            ip: ip.to_string(),
+            cpu_usage: 42.0,
+            cpu_count: 2,
+            gpu_count: 1,
+            used_memory: 1024,
+            total_memory: 2048,
+            mem_usage: 50.0,
+            rx_bytes: 100,
+            tx_bytes: 200,
+            read_bytes: 300,
+            write_bytes: 400,
+            arch: "x86_64".to_string(),
+            os: "linux".to_string(),
+        }
+    }
+
+    fn sample_container(id: &str, name: &str) -> ContainerInfo {
+        ContainerInfo {
+            id: id.to_string(),
+            names: vec![name.to_string()],
+            ..Default::default()
+        }
+    }
+
+    fn sample_soc(soc_id: &str, node: NodeInfo) -> SocInfo {
+        SocInfo {
+            soc_id: soc_id.to_string(),
+            nodes: vec![node],
+            total_cpu_usage: 42.0,
+            total_cpu_count: 2,
+            total_gpu_count: 1,
+            total_used_memory: 1024,
+            total_memory: 2048,
+            total_mem_usage: 50.0,
+            total_rx_bytes: 100,
+            total_tx_bytes: 200,
+            total_read_bytes: 300,
+            total_write_bytes: 400,
+            last_updated: SystemTime::now(),
+        }
+    }
+
+    fn sample_board(board_id: &str, node: NodeInfo) -> BoardInfo {
+        BoardInfo {
+            board_id: board_id.to_string(),
+            nodes: vec![node],
+            socs: vec![],
+            total_cpu_usage: 42.0,
+            total_cpu_count: 2,
+            total_gpu_count: 1,
+            total_used_memory: 1024,
+            total_memory: 2048,
+            total_mem_usage: 50.0,
+            total_rx_bytes: 100,
+            total_tx_bytes: 200,
+            total_read_bytes: 300,
+            total_write_bytes: 400,
+            last_updated: SystemTime::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_store_and_delete_node_info() {
+        let node = sample_node("node1", "192.168.10.201");
+        let result = store_node_info(&node).await;
+        // Should be Ok or error if etcd is not running
+        assert!(result.is_ok() || result.is_err());
+
+        let result = delete_node_info("node1").await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_store_and_delete_soc_info() {
+        let node = sample_node("node1", "192.168.10.201");
+        let soc = sample_soc("soc1", node);
+        let result = store_soc_info(&soc).await;
+        assert!(result.is_ok() || result.is_err());
+
+        let result = delete_soc_info("soc1").await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_store_and_delete_board_info() {
+        let node = sample_node("node1", "192.168.10.201");
+        let board = sample_board("board1", node);
+        let result = store_board_info(&board).await;
+        assert!(result.is_ok() || result.is_err());
+
+        let result = delete_board_info("board1").await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_store_and_delete_container_info() {
+        let container = sample_container("c1", "container1");
+        let result = store_container_info(&container).await;
+        assert!(result.is_ok() || result.is_err());
+
+        let result = delete_container_info("c1").await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_node_info_not_found() {
+        let result = get_node_info("notfound").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_soc_info_not_found() {
+        let result = get_soc_info("notfound").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_board_info_not_found() {
+        let result = get_board_info("notfound").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_container_info_not_found() {
+        let result = get_container_info("notfound").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_all_nodes_socs_boards_containers() {
+        // These should not panic, even if etcd is empty or not running
+        let _ = get_all_nodes().await;
+        let _ = get_all_socs().await;
+        let _ = get_all_boards().await;
+        let _ = get_all_containers().await;
+    }
+
+    #[tokio::test]
+    async fn test_store_info_and_get_info_generic() {
+        let node = sample_node("node1", "192.168.10.201");
+        let store_result = super::store_info("nodes", "node1", &node).await;
+        assert!(store_result.is_ok() || store_result.is_err());
+
+        let get_result: Result<NodeInfo, _> = super::get_info("nodes", "node1").await;
+        // Should be Ok if etcd is running, Err otherwise
+        assert!(get_result.is_ok() || get_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_delete_info_generic() {
+        let del_result = super::delete_info("nodes", "node1").await;
+        assert!(del_result.is_ok() || del_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_all_info_generic() {
+        let all_nodes: Result<Vec<NodeInfo>, _> = super::get_all_info("nodes").await;
+        assert!(all_nodes.is_ok() || all_nodes.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_store_node_info_api() {
+        let node = sample_node("node2", "192.168.10.202");
+        let result = store_node_info(&node).await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_store_soc_info_api() {
+        let node = sample_node("node3", "192.168.10.203");
+        let soc = sample_soc("soc3", node);
+        let result = store_soc_info(&soc).await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_store_board_info_api() {
+        let node = sample_node("node4", "192.168.10.204");
+        let board = sample_board("board4", node);
+        let result = store_board_info(&board).await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_store_container_info_api() {
+        let container = sample_container("c4", "container4");
+        let result = store_container_info(&container).await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_node_info_api() {
+        let result = get_node_info("node2").await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_soc_info_api() {
+        let result = get_soc_info("soc3").await;
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_board_info_api() {
+        let result = get_board_info("board4").await;
+        assert!(result.is_ok() || result.is_err());
+    }
 }

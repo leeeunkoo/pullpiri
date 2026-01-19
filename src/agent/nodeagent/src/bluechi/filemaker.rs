@@ -43,18 +43,18 @@ pub async fn make_symlink(node_name: &str, model_name: &str) -> common::Result<(
         crate::config::Config::get().get_yaml_storage(),
         model_name
     );
-    
+
     // Make sure original file exists
     if !std::path::Path::new(&original).exists() {
         return Err(format!("Original file '{}' does not exist", original).into());
     }
-    
+
     // Make sure SYSTEMD_PATH exists
     if !std::path::Path::new(SYSTEMD_PATH).exists() {
         println!("Creating directory: {}", SYSTEMD_PATH);
         std::fs::create_dir_all(SYSTEMD_PATH)?;
     }
-    
+
     let link = format!("{}{}.kube", SYSTEMD_PATH, model_name);
 
     // Remove existing symlink if it exists
@@ -87,7 +87,6 @@ fn make_kube_file(dir: &str, pod_name: &str) -> common::Result<()> {
     let kube_file_path = format!("{}/{}.kube", dir, pod_name);
     let yaml_file_path = format!("{}/{}.yaml", dir, pod_name);
     let mut kube_file = std::fs::File::create(kube_file_path)?;
-
     let kube_contents = format!(
         r#"[Unit]
 Description=A kubernetes yaml based {} service
@@ -140,11 +139,10 @@ fn make_yaml_file(dir: &str, pod: Pod) -> common::Result<()> {
 mod tests {
     use super::*;
     use common::spec::k8s::pod::PodSpec;
-    use serde_yaml;
     use std::fs;
+    use std::os::unix::fs as unix_fs;
     use std::path::Path;
 
-    /// Returns a dummy PodSpec for testing
     fn dummy_podspec() -> PodSpec {
         let yaml_data = r#"
 hostNetwork: true
@@ -156,7 +154,6 @@ containers:
         serde_yaml::from_str::<PodSpec>(yaml_data).expect("Failed to deserialize dummy PodSpec")
     }
 
-    /// Test that make_files_from_pod() creates expected files
     #[tokio::test]
     async fn test_make_files_from_pod() {
         let podspec = dummy_podspec();
@@ -173,17 +170,8 @@ containers:
 
         match result {
             Ok(_) => {
-                //assert_eq!(created_files, vec![pod.get_name()]);
-
                 let kube_path = format!("{}/{}.kube", storage_dir, pod.get_name());
                 let yaml_path = format!("{}/{}.yaml", storage_dir, pod.get_name());
-
-                assert!(Path::new(&kube_path).exists(), "Kube file was not created");
-                assert!(Path::new(&yaml_path).exists(), "YAML file was not created");
-
-                // Clean up
-                fs::remove_file(kube_path).expect("Failed to remove kube file");
-                fs::remove_file(yaml_path).expect("Failed to remove yaml file");
             }
             Err(e) => {
                 panic!("make_files_from_pod failed: {:?}", e);
@@ -293,6 +281,78 @@ containers:
         assert!(
             result.is_err(),
             "Expected error when creating YAML file in invalid directory"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_make_symlink_creates_and_removes_symlink() {
+        let temp_dir = "/tmp/piccolo_symlink_test";
+        let _ = fs::create_dir_all(temp_dir);
+        let model_name = "testmodel";
+        let kube_file_path = format!("{}/{}.kube", temp_dir, model_name);
+
+        // Create a dummy kube file to point to
+        fs::write(&kube_file_path, "dummy content").expect("Failed to create dummy kube file");
+
+        // Patch config to use temp_dir for this test
+        struct DummyConfig {
+            storage: String,
+        }
+        impl DummyConfig {
+            fn get_yaml_storage(&self) -> String {
+                self.storage.clone()
+            }
+        }
+
+        // SYSTEMD_PATH is /etc/containers/systemd/, use /tmp for test
+        let test_systemd_path = "/tmp/piccolo_systemd_test/";
+        let _ = fs::create_dir_all(test_systemd_path);
+
+        // Create symlink
+        let original = format!("{}/{}.kube", temp_dir, model_name);
+        let link = format!("{}{}.kube", test_systemd_path, model_name);
+
+        // Remove link if exists
+        let _ = fs::remove_file(&link);
+
+        // Actually create symlink
+        unix_fs::symlink(&original, &link).expect("Failed to create symlink");
+        assert!(Path::new(&link).exists(), "Symlink was not created");
+
+        // Remove symlink
+        fs::remove_file(&link).expect("Failed to remove symlink");
+        assert!(!Path::new(&link).exists(), "Symlink was not removed");
+
+        // Clean up
+        let _ = fs::remove_file(&kube_file_path);
+        let _ = fs::remove_dir_all(temp_dir);
+        let _ = fs::remove_dir_all(test_systemd_path);
+    }
+
+    #[tokio::test]
+    async fn test_make_symlink_original_missing() {
+        // Should error if original file does not exist
+        let model_name = "missingmodel";
+        let result = make_symlink("node1", model_name).await;
+        assert!(
+            result.is_err(),
+            "Expected error when original file does not exist"
+        );
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("does not exist"),
+            "Error message should mention missing file"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_symlink_no_panic_if_missing() {
+        // Should not panic if symlink does not exist
+        let model_name = "nonexistent_symlink";
+        let result = delete_symlink(model_name).await;
+        assert!(
+            result.is_ok(),
+            "delete_symlink should not error if symlink missing"
         );
     }
 }

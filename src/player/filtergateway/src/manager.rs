@@ -1,8 +1,14 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 use crate::filter::Filter;
 use crate::grpc::sender::actioncontroller::FilterGatewaySender;
+use crate::grpc::sender::statemanager::StateManagerSender;
 use crate::vehicle::dds::DdsData;
 use crate::vehicle::VehicleManager;
 use common::spec::artifact::Scenario;
+use common::statemanager::{ResourceType, StateChange};
 use common::{spec::artifact::Artifact, Result};
 // use dust_dds::infrastructure::wait_set::Condition;
 use std::sync::Arc;
@@ -16,13 +22,14 @@ use tokio::sync::{mpsc, Mutex};
 /// - Processing incoming scenario requests
 ///
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ScenarioParameter {
     /// Name of the scenario
     pub action: i32,
     /// Vehicle message information
     pub scenario: Scenario,
 }
-
+#[allow(dead_code)]
 pub struct FilterGatewayManager {
     /// Receiver for scenario information from gRPC
     pub rx_grpc: Arc<Mutex<mpsc::Receiver<ScenarioParameter>>>,
@@ -35,7 +42,7 @@ pub struct FilterGatewayManager {
     /// Vehicle manager for handling vehicle data
     pub vehicle_manager: Arc<Mutex<VehicleManager>>,
 }
-
+#[allow(dead_code)]
 impl FilterGatewayManager {
     /// Creates a new FilterGatewayManager instance
     ///
@@ -46,7 +53,6 @@ impl FilterGatewayManager {
     /// # Returns
     ///
     /// A new FilterGatewayManager instance
-
     pub async fn new(rx_grpc: mpsc::Receiver<ScenarioParameter>) -> Self {
         let (tx_dds, rx_dds) = mpsc::channel::<DdsData>(10);
         let mut vehicle_manager = VehicleManager::new(tx_dds);
@@ -335,6 +341,45 @@ impl FilterGatewayManager {
             let elapsed = start.elapsed();
             println!("launch_scenario_filter: elapsed = {:?}", elapsed);
             return Ok(());
+        }
+
+        // Set scenario state from idle to waiting when conditions are registered
+        println!("🔄 SCENARIO STATE TRANSITION: FilterGateway Condition Registration");
+        println!("   📋 Scenario: {}", scenario.get_name());
+        println!("   🔄 State Change: idle → waiting");
+        println!("   🔍 Reason: Scenario conditions registered in FilterGateway");
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as i64;
+
+        let state_change = StateChange {
+            resource_type: ResourceType::Scenario as i32,
+            resource_name: scenario.get_name().clone(),
+            current_state: "idle".to_string(),
+            target_state: "waiting".to_string(),
+            transition_id: format!("filtergateway-condition-registered-{}", timestamp),
+            timestamp_ns: timestamp,
+            source: "filtergateway".to_string(),
+        };
+
+        println!("   📤 Sending StateChange to StateManager:");
+        println!("      • Resource Type: SCENARIO");
+        println!("      • Resource Name: {}", state_change.resource_name);
+        println!("      • Current State: {}", state_change.current_state);
+        println!("      • Target State: {}", state_change.target_state);
+        println!("      • Transition ID: {}", state_change.transition_id);
+        println!("      • Source: {}", state_change.source);
+
+        let mut state_sender = StateManagerSender::new();
+        if let Err(e) = state_sender.send_state_change(state_change).await {
+            println!("   ❌ Failed to send state change to StateManager: {:?}", e);
+        } else {
+            println!(
+                "   ✅ Successfully notified StateManager: scenario {} idle → waiting",
+                scenario.get_name()
+            );
         }
 
         let sender = {
@@ -1093,6 +1138,503 @@ mod tests {
         assert!(
             !called_filter.load(Ordering::SeqCst),
             "Inactive filter should NOT be called"
+        );
+    }
+
+    /// Test vehicle manager initialization error handling
+    #[tokio::test]
+    async fn test_vehicle_manager_init_error() {
+        // Mock a VehicleManager that fails on init
+        struct FailingVehicleManager {
+            pub init_failed: Arc<AtomicBool>,
+        }
+
+        impl FailingVehicleManager {
+            async fn init(&mut self) -> Result<()> {
+                self.init_failed.store(true, Ordering::SeqCst);
+                Err(anyhow::anyhow!("Initialization failed"))
+            }
+        }
+
+        let init_failed = Arc::new(AtomicBool::new(false));
+        let mut vm = FailingVehicleManager {
+            init_failed: Arc::clone(&init_failed),
+        };
+
+        // Simulate the error handling path in FilterGatewayManager::new
+        if let Err(e) = vm.init().await {
+            println!("Warning: Failed to initialize vehicle manager: {:?}. Continuing with default settings.", e);
+        }
+
+        assert!(
+            init_failed.load(Ordering::SeqCst),
+            "Init should have failed"
+        );
+    }
+
+    /// Test DDS data processing with empty name/value
+    #[tokio::test]
+    async fn test_process_dds_data_with_empty_fields() {
+        let (tx, rx) = mpsc::channel(10);
+        let rx_dds = Arc::new(Mutex::new(rx));
+
+        // Send data with empty fields - should not print
+        let empty_data = DummyDdsData {
+            name: "".to_string(),
+            value: "".to_string(),
+        };
+
+        let non_empty_data = DummyDdsData {
+            name: "topic".to_string(),
+            value: "value".to_string(),
+        };
+
+        tx.send(empty_data).await.unwrap();
+        tx.send(non_empty_data).await.unwrap();
+        drop(tx);
+
+        let called = Arc::new(AtomicBool::new(false));
+        let filter = MockFilter {
+            name: "TestFilter".to_string(),
+            called: Arc::clone(&called),
+            should_be_active: true,
+        };
+
+        let filters = Arc::new(Mutex::new(vec![filter]));
+        let manager = DummyFilterManager { rx_dds, filters };
+
+        manager.process_dds_data().await.unwrap();
+
+        assert!(
+            called.load(Ordering::SeqCst),
+            "Filter should be called for non-empty data"
+        );
+    }
+
+    /// Test scenario filter with no conditions
+    #[tokio::test]
+    async fn test_launch_scenario_filter_no_conditions() {
+        use super::*;
+
+        // Create a mock FilterGatewayManager-like struct
+        struct MockFilterGatewayManager {
+            sender_triggered: Arc<AtomicBool>,
+        }
+
+        impl MockFilterGatewayManager {
+            async fn mock_launch_scenario_filter(&self, scenario: DummyScenario) -> Result<()> {
+                // Check if the scenario has conditions
+                if scenario.get_conditions().is_none() {
+                    println!("No conditions for scenario: {}", scenario.get_name());
+                    // Mock trigger action
+                    self.sender_triggered.store(true, Ordering::SeqCst);
+                    return Ok(());
+                }
+                Ok(())
+            }
+        }
+
+        let manager = MockFilterGatewayManager {
+            sender_triggered: Arc::new(AtomicBool::new(false)),
+        };
+
+        let scenario_no_conditions = DummyScenario {
+            name: "NoConditions".to_string(),
+            has_conditions: false,
+        };
+
+        manager
+            .mock_launch_scenario_filter(scenario_no_conditions)
+            .await
+            .unwrap();
+
+        assert!(
+            manager.sender_triggered.load(Ordering::SeqCst),
+            "Sender should be triggered for scenario with no conditions"
+        );
+    }
+
+    /// Test subscribe_topic error handling
+    #[tokio::test]
+    async fn test_subscribe_topic_error_handling() {
+        // Mock VehicleManager that fails on subscribe
+        struct FailingVehicleManager {
+            pub subscribe_error: Arc<AtomicBool>,
+        }
+
+        impl FailingVehicleManager {
+            async fn subscribe_topic(&mut self, _topic: String, _data_type: String) -> Result<()> {
+                self.subscribe_error.store(true, Ordering::SeqCst);
+                Err(anyhow::anyhow!("Subscribe failed"))
+            }
+        }
+
+        let subscribe_error = Arc::new(AtomicBool::new(false));
+        let mut vm = FailingVehicleManager {
+            subscribe_error: Arc::clone(&subscribe_error),
+        };
+
+        // Simulate the error handling path
+        if let Err(e) = vm
+            .subscribe_topic("topic".to_string(), "type".to_string())
+            .await
+        {
+            eprintln!("Error subscribing to vehicle data: {:?}", e);
+        }
+
+        assert!(
+            subscribe_error.load(Ordering::SeqCst),
+            "Subscribe should have failed"
+        );
+    }
+
+    /// Test unsubscribe_topic error handling
+    #[tokio::test]
+    async fn test_unsubscribe_topic_error_handling() {
+        // Mock VehicleManager that fails on unsubscribe
+        struct FailingVehicleManager {
+            pub unsubscribe_error: Arc<AtomicBool>,
+        }
+
+        impl FailingVehicleManager {
+            async fn unsubscribe_topic(&mut self, _topic: String) -> Result<()> {
+                self.unsubscribe_error.store(true, Ordering::SeqCst);
+                Err(anyhow::anyhow!("Unsubscribe failed"))
+            }
+        }
+
+        let unsubscribe_error = Arc::new(AtomicBool::new(false));
+        let mut vm = FailingVehicleManager {
+            unsubscribe_error: Arc::clone(&unsubscribe_error),
+        };
+
+        // Simulate the error handling path
+        if let Err(e) = vm.unsubscribe_topic("topic".to_string()).await {
+            eprintln!("Error unsubscribing from vehicle data: {:?}", e);
+        }
+
+        assert!(
+            unsubscribe_error.load(Ordering::SeqCst),
+            "Unsubscribe should have failed"
+        );
+    }
+
+    /// Test filter processing error handling
+    #[tokio::test]
+    async fn test_filter_process_data_error() {
+        struct FailingFilter {
+            pub name: String,
+            pub process_error: Arc<AtomicBool>,
+        }
+
+        impl FailingFilter {
+            fn is_active(&self) -> bool {
+                true
+            }
+
+            async fn process_data(&mut self, _data: &DummyDdsData) -> Result<()> {
+                self.process_error.store(true, Ordering::SeqCst);
+                Err(anyhow::anyhow!("Process data failed"))
+            }
+        }
+
+        let (tx, rx) = mpsc::channel(1);
+        let rx_dds = Arc::new(Mutex::new(rx));
+
+        let test_data = DummyDdsData {
+            name: "test_topic".to_string(),
+            value: "42".to_string(),
+        };
+
+        tx.send(test_data).await.unwrap();
+        drop(tx);
+
+        let process_error = Arc::new(AtomicBool::new(false));
+        let mut filter = FailingFilter {
+            name: "FailingFilter".to_string(),
+            process_error: Arc::clone(&process_error),
+        };
+
+        let mut receiver = rx_dds.lock().await;
+        if let Some(dds_data) = receiver.recv().await {
+            if filter.is_active() {
+                if let Err(e) = filter.process_data(&dds_data).await {
+                    println!(
+                        "Error processing DDS data in filter {}: {:?}",
+                        filter.name, e
+                    );
+                }
+            }
+        }
+
+        assert!(
+            process_error.load(Ordering::SeqCst),
+            "Filter should have failed processing"
+        );
+    }
+
+    /// Test duplicate filter prevention
+    #[tokio::test]
+    async fn test_duplicate_filter_prevention() {
+        use super::*;
+
+        // Mock scenario filters with duplicate names
+        struct MockScenarioFilter {
+            pub scenario_name: String,
+        }
+
+        struct MockFilterManager {
+            filters: Vec<MockScenarioFilter>,
+        }
+
+        impl MockFilterManager {
+            fn new() -> Self {
+                Self { filters: vec![] }
+            }
+
+            fn mock_launch_scenario_filter(&mut self, scenario_name: String) -> Result<()> {
+                // Check for duplicates
+                if self
+                    .filters
+                    .iter()
+                    .any(|f| f.scenario_name == scenario_name)
+                {
+                    println!(
+                        "Filter for scenario '{}' already exists, skipping.",
+                        scenario_name
+                    );
+                    return Ok(());
+                }
+
+                // Add new filter
+                self.filters.push(MockScenarioFilter { scenario_name });
+                Ok(())
+            }
+        }
+
+        let mut manager = MockFilterManager::new();
+
+        // Add first filter
+        manager
+            .mock_launch_scenario_filter("TestScenario".to_string())
+            .unwrap();
+        assert_eq!(manager.filters.len(), 1, "First filter should be added");
+
+        // Try to add duplicate - should be skipped
+        manager
+            .mock_launch_scenario_filter("TestScenario".to_string())
+            .unwrap();
+        assert_eq!(
+            manager.filters.len(),
+            1,
+            "Duplicate filter should be skipped"
+        );
+    }
+
+    /// Test scenario with conditions state change
+    #[tokio::test]
+    async fn test_scenario_with_conditions_state_change() {
+        // Mock StateManager sender
+        struct MockStateManagerSender {
+            pub state_change_sent: Arc<AtomicBool>,
+        }
+
+        impl MockStateManagerSender {
+            fn new() -> Self {
+                Self {
+                    state_change_sent: Arc::new(AtomicBool::new(false)),
+                }
+            }
+
+            async fn send_state_change(
+                &mut self,
+                _state_change: common::statemanager::StateChange,
+            ) -> Result<()> {
+                self.state_change_sent.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+        }
+
+        let mut state_sender = MockStateManagerSender::new();
+        let state_change_sent = Arc::clone(&state_sender.state_change_sent);
+
+        let scenario = DummyScenario {
+            name: "TestScenario".to_string(),
+            has_conditions: true,
+        };
+
+        // Simulate the state change logic
+        if scenario.get_conditions().is_some() {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as i64;
+
+            let state_change = common::statemanager::StateChange {
+                resource_type: common::statemanager::ResourceType::Scenario as i32,
+                resource_name: scenario.get_name(),
+                current_state: "idle".to_string(),
+                target_state: "waiting".to_string(),
+                transition_id: format!("filtergateway-condition-registered-{}", timestamp),
+                timestamp_ns: timestamp,
+                source: "filtergateway".to_string(),
+            };
+
+            if let Err(e) = state_sender.send_state_change(state_change).await {
+                println!("Failed to send state change to StateManager: {:?}", e);
+            }
+        }
+
+        assert!(
+            state_change_sent.load(Ordering::SeqCst),
+            "State change should have been sent for scenario with conditions"
+        );
+    }
+
+    /// Test scenario state change error handling
+    #[tokio::test]
+    async fn test_scenario_state_change_error() {
+        // Mock StateManager sender that fails
+        struct FailingStateManagerSender {
+            pub send_error: Arc<AtomicBool>,
+        }
+
+        impl FailingStateManagerSender {
+            fn new() -> Self {
+                Self {
+                    send_error: Arc::new(AtomicBool::new(false)),
+                }
+            }
+
+            async fn send_state_change(
+                &mut self,
+                _state_change: common::statemanager::StateChange,
+            ) -> Result<()> {
+                self.send_error.store(true, Ordering::SeqCst);
+                Err(anyhow::anyhow!("State change send failed"))
+            }
+        }
+
+        let mut state_sender = FailingStateManagerSender::new();
+        let send_error = Arc::clone(&state_sender.send_error);
+
+        let state_change = common::statemanager::StateChange {
+            resource_type: common::statemanager::ResourceType::Scenario as i32,
+            resource_name: "TestScenario".to_string(),
+            current_state: "idle".to_string(),
+            target_state: "waiting".to_string(),
+            transition_id: "test-transition".to_string(),
+            timestamp_ns: 123456789,
+            source: "filtergateway".to_string(),
+        };
+
+        // Test error handling path (line 264)
+        if let Err(e) = state_sender.send_state_change(state_change).await {
+            println!("❌ Failed to send state change to StateManager: {:?}", e);
+        }
+
+        assert!(
+            send_error.load(Ordering::SeqCst),
+            "State change should have failed"
+        );
+    }
+
+    /// Test channel closed scenarios
+    #[tokio::test]
+    async fn test_channel_closed_scenarios() {
+        // Test DDS channel closed
+        let (_, rx_dds) = mpsc::channel::<DummyDdsData>(1);
+        let rx_dds = Arc::new(Mutex::new(rx_dds));
+        let filters = Arc::new(Mutex::new(vec![]));
+        let dds_manager = DummyFilterManager { rx_dds, filters };
+
+        // This should hit the "Channel closed" path
+        let result = dds_manager.process_dds_data().await;
+        assert!(
+            result.is_ok(),
+            "Should handle closed DDS channel gracefully"
+        );
+
+        // Test gRPC channel closed
+        let (_, rx_grpc) = mpsc::channel::<DummyScenarioParam>(1);
+        let grpc_manager = DummyManager {
+            rx_grpc: Arc::new(Mutex::new(rx_grpc)),
+            vehicle_manager: Arc::new(Mutex::new(MockVehicleManager {
+                subscribed: Arc::new(AtomicBool::new(false)),
+                unsubscribed: Arc::new(AtomicBool::new(false)),
+            })),
+            launched: Arc::new(AtomicBool::new(false)),
+            removed: Arc::new(AtomicBool::new(false)),
+        };
+
+        // This should hit the "gRPC channel closed" path
+        let result = grpc_manager.process_grpc_requests().await;
+        assert!(
+            result.is_ok(),
+            "Should handle closed gRPC channel gracefully"
+        );
+    }
+
+    /// Test scenario initialization from etcd
+    #[tokio::test]
+    async fn test_initialize_with_scenario_subscription_error() {
+        use super::*;
+
+        // Mock manager with failing vehicle manager
+        struct MockInitManager {
+            vehicle_manager_error: Arc<AtomicBool>,
+        }
+
+        impl MockInitManager {
+            async fn mock_initialize(&self) -> Result<()> {
+                println!("FilterGatewayManager init");
+
+                // Simulate scenarios from etcd
+                let scenarios = vec!["
+apiVersion: v1
+kind: Scenario
+metadata:
+  name: test-scenario
+spec:
+  action: update
+  target: test-scenario
+  condition:
+    express: eq
+    value: ready
+    operands:
+      type: pod
+      name: test-pod
+      value: status
+"
+                .to_string()];
+
+                for scenario_str in scenarios {
+                    let scenario: common::spec::artifact::Scenario =
+                        serde_yaml::from_str(&scenario_str)?;
+                    let topic_name = scenario
+                        .get_conditions()
+                        .as_ref()
+                        .map(|cond| cond.get_operand_value())
+                        .unwrap_or_default();
+
+                    // Simulate vehicle manager subscribe error (line 104)
+                    self.vehicle_manager_error.store(true, Ordering::SeqCst);
+                    eprintln!("Error subscribing to vehicle data: Test error");
+                }
+
+                Ok(())
+            }
+        }
+
+        let manager = MockInitManager {
+            vehicle_manager_error: Arc::new(AtomicBool::new(false)),
+        };
+
+        manager.mock_initialize().await.unwrap();
+
+        assert!(
+            manager.vehicle_manager_error.load(Ordering::SeqCst),
+            "Vehicle manager error should be triggered"
         );
     }
 }

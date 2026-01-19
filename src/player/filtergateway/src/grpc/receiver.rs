@@ -1,12 +1,16 @@
-use core::sync;
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
+// use core::sync;
 use std::io::Error;
 
 use crate::manager::ScenarioParameter;
-use crate::vehicle::dds::DdsData;
+// use crate::vehicle::dds::DdsData;
 
-use common::spec::artifact::{Artifact, Scenario};
+use common::spec::artifact::Scenario;
 use common::Result;
-use tokio::sync::mpsc::{self, error::SendError};
+use tokio::sync::mpsc::{self};
 use tonic::{Request, Response, Status};
 
 // Import the generated protobuf code from filtergateway.proto
@@ -16,10 +20,11 @@ use common::filtergateway::{
 };
 
 /// FilterGateway gRPC service handler
+#[allow(dead_code)]
 pub struct FilterGatewayReceiver {
     tx: mpsc::Sender<ScenarioParameter>,
 }
-
+#[allow(dead_code)]
 impl FilterGatewayReceiver {
     /// Create a new FilterGatewayReceiver
     ///
@@ -63,14 +68,11 @@ impl FilterGatewayReceiver {
         // Parse the scenario YAML string into a Scenario struct
         let scenario = serde_yaml::from_str::<Scenario>(&scenario_yaml_str)?;
 
-        let param = ScenarioParameter {
-            action: action,
-            scenario: scenario,
-        };
+        let param = ScenarioParameter { action, scenario };
 
         self.tx.send(param).await.map_err(|e| {
             eprintln!("Failed to send scenario: {}", e);
-            Error::new(std::io::ErrorKind::Other, "Failed to send scenario")
+            Error::other("Failed to send scenario")
         })?;
 
         let elapsed = start.elapsed();

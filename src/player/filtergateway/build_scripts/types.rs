@@ -1,3 +1,7 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
 // Module for DDS type definitions
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

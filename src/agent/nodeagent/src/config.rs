@@ -1,11 +1,14 @@
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
+use if_addrs::{get_if_addrs, Interface};
 use serde::Deserialize;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
-use if_addrs::{Interface, get_if_addrs};
 use thiserror::Error;
-
 
 // Global config instance
 static NODEAGENT_CONFIG: OnceLock<Config> = OnceLock::new();
@@ -19,20 +22,20 @@ pub enum ConfigError {
     YamlError(#[from] serde_yaml::Error),
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone, Default, PartialEq)]
 pub struct MetricsConfig {
     pub collection_interval: u64,
     pub batch_size: u32,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone, Default, PartialEq)]
 pub struct SystemConfig {
     pub hostname: String,
     pub platform: String,
     pub architecture: String,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone, Default, PartialEq)]
 pub struct NodeAgentConfig {
     #[serde(default = "default_node_name")]
     pub node_name: String,
@@ -70,7 +73,7 @@ fn default_yaml_storage() -> String {
     "/etc/piccolo/yaml".to_string()
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone, Default, PartialEq)]
 pub struct Config {
     pub nodeagent: NodeAgentConfig,
 }
@@ -90,7 +93,7 @@ impl Config {
         if !self.nodeagent.node_ip.is_empty() {
             return self.nodeagent.node_ip.clone();
         }
-        
+
         // Otherwise try to get the first non-loopback IPv4 address
         if let Ok(interfaces) = get_network_interfaces() {
             for iface in interfaces {
@@ -101,7 +104,7 @@ impl Config {
                 }
             }
         }
-        
+
         // Fallback to master_ip if we couldn't determine the host IP
         self.nodeagent.master_ip.clone()
     }
@@ -136,4 +139,66 @@ impl Config {
 // Helper function to get network interfaces
 fn get_network_interfaces() -> Result<Vec<Interface>, std::io::Error> {
     get_if_addrs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_load_nonexistent_file_returns_default() {
+        let path = PathBuf::from("/nonexistent/path/to/config.yaml");
+        let config = Config::load(&path).unwrap_or_else(|_| Config::default());
+        assert!(!config.get_host_ip().is_empty());
+    }
+
+    #[test]
+    fn test_set_and_get_global_config() {
+        let config = Config::default();
+        Config::set_global(config.clone());
+        let loaded = Config::get();
+        assert_eq!(loaded.get_host_ip(), config.get_host_ip());
+    }
+
+    #[test]
+    fn test_node_type_and_role_mapping() {
+        let mut config = Config::default();
+        config.nodeagent.node_type = "cloud".to_string();
+        config.nodeagent.node_role = "master".to_string();
+        assert_eq!(
+            match config.nodeagent.node_type.as_str() {
+                "cloud" => 1,
+                "vehicle" => 2,
+                _ => 0,
+            },
+            1
+        );
+        assert_eq!(
+            match config.nodeagent.node_role.as_str() {
+                "master" => 1,
+                "nodeagent" => 2,
+                "bluechi" => 3,
+                _ => 0,
+            },
+            1
+        );
+    }
+
+    #[test]
+    fn test_config_clone_and_eq() {
+        let config1 = Config::default();
+        let config2 = config1.clone();
+        assert_eq!(config1, config2);
+    }
+
+    #[test]
+    fn test_config_load_from_file_fallback() {
+        let path = PathBuf::from("/nonexistent/path/to/config.yaml");
+        let config = match Config::load(&path) {
+            Ok(cfg) => cfg,
+            Err(_) => Config::default(),
+        };
+        assert!(!config.get_host_ip().is_empty());
+    }
 }

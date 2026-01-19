@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Node status manager for monitoring cluster health
 pub struct NodeStatusManager;
-
+#[allow(dead_code)]
 impl NodeStatusManager {
     /// Check if a node is healthy based on last heartbeat
     pub fn is_node_healthy(&self, node: &NodeInfo, heartbeat_timeout_seconds: u64) -> bool {
@@ -57,10 +57,10 @@ impl NodeStatusManager {
 
         let nodeagent_nodes = nodes
             .iter()
-            .filter(|node| 
-                node.node_role == common::nodeagent::NodeRole::Nodeagent as i32 || 
-                node.node_role == common::nodeagent::NodeRole::Bluechi as i32
-            )
+            .filter(|node| {
+                node.node_role == common::nodeagent::NodeRole::Nodeagent as i32
+                    || node.node_role == common::nodeagent::NodeRole::Bluechi as i32
+            })
             .count();
 
         let ready_nodes = nodes
@@ -101,6 +101,7 @@ impl NodeStatusManager {
 
 /// Cluster health summary
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ClusterHealthSummary {
     pub total_nodes: usize,
     pub healthy_nodes: usize,
@@ -113,6 +114,7 @@ pub struct ClusterHealthSummary {
 
 /// Overall cluster status
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum ClusterStatus {
     Healthy,
     Degraded,

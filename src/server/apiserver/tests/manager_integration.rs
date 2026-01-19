@@ -1,6 +1,8 @@
-use apiserver::manager::{apply_artifact, initialize, withdraw_artifact};
-use common::filtergateway::{Action, HandleScenarioRequest};
-use tokio;
+/*
+* SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+* SPDX-License-Identifier: Apache-2.0
+*/
+use apiserver::manager::{apply_artifact, initialize};
 
 /// Correct valid YAML artifact (Scenario + Package + Model)
 const VALID_ARTIFACT_YAML: &str = r#"

@@ -55,7 +55,7 @@ async fn withdraw_artifact(body: String) -> Response {
 //UNIT TEST CASES
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use crate::route::status;
     use axum::{
         body::Body,
