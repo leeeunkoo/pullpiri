@@ -50,9 +50,7 @@ export RUSTC_BOOTSTRAP=1
 COMMON_MANIFEST="src/common/Cargo.toml"
 AGENT_MANIFEST="src/agent/Cargo.toml"
 TOOLS_MANIFEST="src/tools/Cargo.toml"
-SERVER_MANIFEST="src/server/Cargo.toml"
 APISERVER_MANIFEST="src/server/apiserver/Cargo.toml"
-PLAYER_MANIFEST="src/player/Cargo.toml"
 FILTERGATEWAY_MANIFEST="src/player/filtergateway/Cargo.toml"
 ACTIONCONTROLLER_MANIFEST="src/player/actioncontroller/Cargo.toml"
 STATEMANAGER_MANIFEST="src/player/statemanager/Cargo.toml"
@@ -109,18 +107,18 @@ start_service "$AGENT_MANIFEST" "nodeagent"
 sleep 3
 
 # === SERVER ===
-if [[ -f "$SERVER_MANIFEST" ]]; then
-  echo "📂 Running tarpaulin for server" | tee -a "$LOG_FILE"
+if [[ -f "$APISERVER_MANIFEST" ]]; then
+  echo "📂 Running tarpaulin for server (apiserver)" | tee -a "$LOG_FILE"
   mkdir -p "$COVERAGE_ROOT/server"
   (
-    cd "$(dirname "$SERVER_MANIFEST")"
+    cd "$(dirname "$APISERVER_MANIFEST")"
     cargo tarpaulin --out Html --out Lcov --out Xml \
       --output-dir "$PROJECT_ROOT/$COVERAGE_ROOT/server" \
       2>&1 | tee -a "$LOG_FILE" || true
   )
   mv "$PROJECT_ROOT/$COVERAGE_ROOT/server/tarpaulin-report.html" "$PROJECT_ROOT/$COVERAGE_ROOT/server/tarpaulin-report-server.html" 2>/dev/null || true
 else
-  echo "::warning ::$SERVER_MANIFEST not found. Skipping..." | tee -a "$LOG_FILE"
+  echo "::warning ::$APISERVER_MANIFEST not found. Skipping..." | tee -a "$LOG_FILE"
 fi
 
 # Stop background services before next round
@@ -143,18 +141,18 @@ start_service "$STATEMANAGER_MANIFEST" "statemanager"
 # Note: RocksDB data cleanup handled by service or via gRPC API if needed
 sleep 3
 
-if [[ -f "$PLAYER_MANIFEST" ]]; then
-  echo "📂 Running tarpaulin for player" | tee -a "$LOG_FILE"
+if [[ -f "$FILTERGATEWAY_MANIFEST" ]]; then
+  echo "📂 Running tarpaulin for player (filtergateway)" | tee -a "$LOG_FILE"
   mkdir -p "$COVERAGE_ROOT/player"
   (
-    cd "$(dirname "$PLAYER_MANIFEST")"
+    cd "$(dirname "$FILTERGATEWAY_MANIFEST")"
     cargo tarpaulin --out Html --out Lcov --out Xml \
       --output-dir "$PROJECT_ROOT/$COVERAGE_ROOT/player" \
       2>&1 | tee -a "$LOG_FILE" || true
   )
   mv "$PROJECT_ROOT/$COVERAGE_ROOT/player/tarpaulin-report.html" "$PROJECT_ROOT/$COVERAGE_ROOT/player/tarpaulin-report-player.html" 2>/dev/null || true
 else
-  echo "::warning ::$PLAYER_MANIFEST not found. Skipping..." | tee -a "$LOG_FILE"
+  echo "::warning ::$FILTERGATEWAY_MANIFEST not found. Skipping..." | tee -a "$LOG_FILE"
 fi
 
 cleanup
