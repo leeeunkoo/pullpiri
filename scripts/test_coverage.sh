@@ -102,8 +102,13 @@ else
 fi
 
 # === Step 2: Start `filtergateway` and `nodeagent` before apiserver ===
+rm -rf /tmp/pullpiri_shared_rocksdb
+mkdir -p /tmp/pullpiri_shared_rocksdb
+# Make directory writable by all users (container needs write access)
+chmod 777 /tmp/pullpiri_shared_rocksdb
 start_service "$FILTERGATEWAY_MANIFEST" "filtergateway"
 start_service "$AGENT_MANIFEST" "nodeagent"
+start_service "$STATEMANAGER_MANIFEST" "statemanager"
 sleep 3
 
 # === SERVER ===
@@ -114,6 +119,7 @@ if [[ -f "$APISERVER_MANIFEST" ]]; then
     cd "$(dirname "$APISERVER_MANIFEST")"
     cargo tarpaulin --out Html --out Lcov --out Xml \
       --output-dir "$PROJECT_ROOT/$COVERAGE_ROOT/server" \
+      --skip-clean \
       2>&1 | tee -a "$LOG_FILE" || true
   )
   mv "$PROJECT_ROOT/$COVERAGE_ROOT/server/tarpaulin-report.html" "$PROJECT_ROOT/$COVERAGE_ROOT/server/tarpaulin-report-server.html" 2>/dev/null || true
