@@ -47,6 +47,7 @@ spec:
 
 /// Test sending with valid scenario and Action::Apply
 #[tokio::test]
+#[ignore = "Requires FilterGateway service to be running"]
 async fn test_send_with_valid_scenario_apply() {
     let scenario = HandleScenarioRequest {
         action: Action::Apply.into(),
@@ -59,6 +60,7 @@ async fn test_send_with_valid_scenario_apply() {
 
 /// Test sending with valid scenario and Action::Withdraw
 #[tokio::test]
+#[ignore = "Requires FilterGateway service to be running"]
 async fn test_send_with_valid_scenario_withdraw() {
     let scenario = HandleScenarioRequest {
         action: Action::Withdraw.into(),
