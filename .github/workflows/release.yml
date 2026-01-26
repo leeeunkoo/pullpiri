@@ -87,7 +87,7 @@ jobs:
         with:
           name: code-coverage-html-common
           path: dist/coverage/common/
-      
+
       # Deny-check report (license allowlist violations)
       - name: Download deny report
         uses: actions/download-artifact@v4
@@ -101,6 +101,13 @@ jobs:
         with:
           name: fmt-report
           path: dist/reports/fmt/
+
+      # clippy report (lint summary)
+      - name: Download clippy report
+        uses: actions/download-artifact@v4
+        with:
+          name: clippy-report
+          path: dist/reports/clippy/
 
       # Test result report (JUnit XML format)
       - name: Download test report
@@ -116,12 +123,19 @@ jobs:
           name: license-report
           path: dist/licenses/
 
-      # Download nodeagent binary
+      # Download nodeagent binary - amd64
       - name: Download nodeagent binary
         uses: actions/download-artifact@v4
         with:
-          name: nodeagent-binary
-          path: dist/binaries/
+          name: nodeagent-binary-amd64
+          path: dist/binaries/amd
+
+      # Download nodeagent binary - arm64
+      - name: Download nodeagent binary
+        uses: actions/download-artifact@v4
+        with:
+          name: nodeagent-binary-arm64
+          path: dist/binaries/arm
 
       # Upload all reports as GitHub Release assets
 
@@ -188,6 +202,14 @@ jobs:
           file: dist/reports/fmt/fmt_summary.md
           tag: ${{ github.ref }}
 
+      - name: Upload clippy report to release
+        uses: svenstaro/upload-release-action@v2
+        id: upload_clippy_report
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/reports/clippy/clippy_summary.md
+          tag: ${{ github.ref }}
+
       - name: Upload test report to release
         uses: svenstaro/upload-release-action@v2
         id: upload_test_report
@@ -206,16 +228,26 @@ jobs:
           file_glob: true
           tag: ${{ github.ref }}
 
-      # Upload nodeagent binary to release (only AMD64 since we're not building ARM64)
+      # Upload AMD64 nodeagent binary to release
       - name: Upload nodeagent binary (Linux AMD64) to release
         uses: svenstaro/upload-release-action@v2
         id: upload_nodeagent_amd64
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: dist/binaries/nodeagent-linux-amd64
+          file: dist/binaries/amd/nodeagent-linux-amd64
           asset_name: nodeagent-linux-amd64
           tag: ${{ github.ref }}
-          
+
+      # Upload ARM64 nodeagent binary to release
+      - name: Upload nodeagent binary (Linux ARM64) to release
+        uses: svenstaro/upload-release-action@v2
+        id: upload_nodeagent_arm64
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/binaries/arm/nodeagent-linux-arm64
+          asset_name: nodeagent-linux-arm64
+          tag: ${{ github.ref }}
+
       # Upload helpful documentation and compliance files
       - name: Upload README to release
         uses: svenstaro/upload-release-action@v2
@@ -230,7 +262,7 @@ jobs:
         id: upload_coding_guidelines
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: src/coding-rule.md
+          file: doc/contribution/coding-rule.md
           tag: ${{ github.ref }}
 
       - name: Upload Release Process to release
@@ -273,7 +305,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: doc-archive.tar.gz
           tag: ${{ github.ref }}
-      
+
       # Fetch latest release metadata (used by quality manifest tool)
       - name: Gets latest created release info
         id: latest_release_info
@@ -294,18 +326,18 @@ jobs:
           artifacts_requirements: ${{ steps.upload_doc.outputs.browser_download_url }}
           artifacts_binaries: >
             ${{ steps.upload_nodeagent_amd64.outputs.browser_download_url }},
+            ${{ steps.upload_nodeagent_arm64.outputs.browser_download_url }},
             ${{ steps.upload_install_script.outputs.browser_download_url }},
             ${{ steps.upload_check_script.outputs.browser_download_url }}
           artifacts_testing: >
-            ${{ steps.upload_test_report.outputs.browser_download_url }},
+            # ${{ steps.upload_test_report.outputs.browser_download_url }},
             ${{ steps.upload_license_report.outputs.browser_download_url }},
             ${{ steps.upload_fmt_report.outputs.browser_download_url }},
             ${{ steps.upload_deny_report.outputs.browser_download_url }},
-            ${{ steps.upload_test_coverage_report_common.outputs.browser_download_url }},
-            ${{ steps.upload_test_coverage_report_tools.outputs.browser_download_url }},
-            ${{ steps.upload_test_coverage_report_server.outputs.browser_download_url }}
-
-
+            ${{ steps.upload_clippy_report.outputs.browser_download_url }},
+            # ${{ steps.upload_test_coverage_report_common.outputs.browser_download_url }},
+            # ${{ steps.upload_test_coverage_report_tools.outputs.browser_download_url }},
+            # ${{ steps.upload_test_coverage_report_server.outputs.browser_download_url }}
 
       # Upload the generated quality manifest to GitHub Release
       - name: Upload quality manifest to release

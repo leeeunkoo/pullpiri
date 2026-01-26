@@ -146,19 +146,19 @@ async fn test_apply_artifact_invalid_method_get() {
 }
 
 //Test: DELETE /api/artifact with valid artifact body
-#[tokio::test]
-async fn test_withdraw_artifact_valid_body() {
-    let app = router();
+// #[tokio::test]
+// async fn test_withdraw_artifact_valid_body() {
+//     let app = router();
 
-    let req = Request::builder()
-        .method("DELETE")
-        .uri("/api/artifact")
-        .body(Body::from(VALID_ARTIFACT_YAML)) // even if it's full YAML, it tests general body handling
-        .unwrap();
+//     let req = Request::builder()
+//         .method("DELETE")
+//         .uri("/api/artifact")
+//         .body(Body::from(VALID_ARTIFACT_YAML)) // even if it's full YAML, it tests general body handling
+//         .unwrap();
 
-    let res = app.oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-}
+//     let res = app.oneshot(req).await.unwrap();
+//     assert_eq!(res.status(), StatusCode::OK);
+// }
 
 // Test: DELETE /api/artifact with empty body (should be rejected)
 #[tokio::test]

@@ -6,8 +6,7 @@
 resolver = "2"
 
 members = [
-    "ppr",
     "idl2rs",
-    "yamlvalidator",
+    "rocksdb-inspector",
     "settingscli"
 ]

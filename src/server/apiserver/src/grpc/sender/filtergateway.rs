@@ -26,7 +26,7 @@ pub async fn send(
 
     let mut client = FilterGatewayConnectionClient::connect(connect_server())
         .await
-        .unwrap();
+        .map_err(|e| Status::unavailable(format!("Failed to connect to FilterGateway: {}", e)))?;
     let response = client.handle_scenario(Request::new(scenario)).await;
 
     let elapsed = start.elapsed();

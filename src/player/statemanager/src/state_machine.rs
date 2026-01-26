@@ -673,7 +673,7 @@ impl StateMachine {
         match common::etcd::get_all_with_prefix("Package/").await {
             Ok(package_entries) => {
                 for kv in package_entries {
-                    match serde_yaml::from_str::<common::spec::artifact::Package>(&kv.value) {
+                    match serde_yaml::from_str::<common::spec::artifact::Package>(&kv.1) {
                         Ok(package) => {
                             // Check if this package contains the model
                             for model_info in package.get_models() {
@@ -684,7 +684,7 @@ impl StateMachine {
                             }
                         }
                         Err(e) => {
-                            println!("    Failed to parse package {}: {:?}", kv.key, e);
+                            println!("    Failed to parse package {}: {:?}", kv.0, e);
                         }
                     }
                 }

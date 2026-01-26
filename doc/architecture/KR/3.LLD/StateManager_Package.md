@@ -48,7 +48,7 @@ etcd에 값을 저장(put)하거나 조회(get)할 때는 문서에 제시된 �
 ```
 let key = format!("/package/{}/state", package_name);
 let value = package_state.as_str_name(); // 예: "Running"
-if let Err(e) = common::etcd::put(&key, value).await {
+if let Err(e) = common::rocksdb::put(&key, value).await {
 	eprintln!("Failed to save package state: {:?}", e);
 }
 ```
@@ -56,7 +56,7 @@ if let Err(e) = common::etcd::put(&key, value).await {
 
 ```
 let key = "/package/my_package/state";
-match common::etcd::get(key).await {
+match common::rocksdb::get(key).await {
 	Ok(value) => println!("Value: {}", value),
 	Err(e) => eprintln!("Failed to get: {:?}", e),
 }
@@ -65,7 +65,7 @@ match common::etcd::get(key).await {
 예시3 : get_all_with_prefix: prefix로 여러 값 조회
 ```
 let prefix = "/package/";
-match common::etcd::get_all_with_prefix(prefix).await {
+match common::rocksdb::get_all_with_prefix(prefix).await {
 	Ok(kvs) => {
 		for kv in kvs {
 			println!("key: {}, value: {}", kv.key, kv.value);

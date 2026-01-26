@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Monitoring and metrics management module
-use crate::monitoring_types::{BoardInfo, NodeInfo, SocInfo};
+use crate::monitoring_types::{BoardInfo, NodeInfo, SocInfo, StressMetrics};
 use crate::settings_storage::filter_key;
 use crate::settings_storage::Storage;
 use crate::settings_utils::error::SettingsError;
@@ -79,14 +79,15 @@ pub enum MetricValue {
     ContainerInfo { value: ContainerInfo },
     SocInfo { value: SocInfo },
     BoardInfo { value: BoardInfo },
+    StressMetrics { value: StressMetrics },
 }
 
 /// Enhanced Metric structure to better match usage patterns
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Metric {
     pub id: String,
-    pub component: String,   // "node", "container", "soc", "board"
-    pub metric_type: String, // "NodeInfo", "ContainerInfo", "SocInfo", "BoardInfo"
+    pub component: String,   // "node", "container", "soc", "board", "stress"
+    pub metric_type: String, // "NodeInfo", "ContainerInfo", "SocInfo", "BoardInfo", "StressMetrics"
     pub labels: HashMap<String, String>,
     pub value: MetricValue,
     pub timestamp: DateTime<Utc>,
@@ -306,6 +307,40 @@ impl MonitoringManager {
             }
         }
 
+        // Get stress metrics and convert to Metric format - using monitoring_etcd
+        match crate::monitoring_etcd::get_all_stress_metrics().await {
+            Ok(stress_list) => {
+                for stress in stress_list {
+                    // try to populate sensible labels; adjust field names to your StressMetrics struct
+                    let proc_name = stress.process_name.clone();
+                    let pid_str = stress.pid.to_string();
+
+                    let metric = Metric {
+                        id: format!("stress:{}:{}", proc_name, pid_str),
+                        component: "stress".to_string(),
+                        metric_type: "StressMetrics".to_string(),
+                        labels: {
+                            let mut labels = HashMap::new();
+                            labels.insert("process_name".to_string(), proc_name.clone());
+                            labels.insert("pid".to_string(), pid_str);
+                            labels
+                        },
+                        value: MetricValue::StressMetrics {
+                            value: stress.clone(),
+                        },
+                        timestamp: Utc::now(),
+                    };
+
+                    if self.metric_matches_filter(&metric, filter) {
+                        metrics.push(metric);
+                    }
+                }
+            }
+            Err(e) => {
+                debug!("No stress metrics available: {}", e);
+            }
+        }
+
         // Apply limits and sorting
         if let Some(filter) = filter {
             if let Some(max_items) = filter.max_items {
@@ -371,6 +406,25 @@ impl MonitoringManager {
         }
     }
 
+    /// Get stress metric by process name
+    pub async fn get_stress_metric_by_process_name(
+        &mut self,
+        process_name: &str,
+    ) -> Result<Option<StressMetrics>, SettingsError> {
+        debug!("Getting stress metric for process: {}", process_name);
+
+        match crate::monitoring_etcd::get_stress_metrics(process_name).await {
+            Ok(metrics) => Ok(Some(metrics)),
+            Err(crate::monitoring_etcd::MonitoringEtcdError::NotFound) => Ok(None),
+            Err(e) => Err(SettingsError::Storage(
+                crate::settings_utils::error::StorageError::OperationFailed(format!(
+                    "Failed to get container: {}",
+                    e
+                )),
+            )),
+        }
+    }
+
     /// Get container logs
     pub async fn get_container_logs(
         &mut self,
@@ -419,6 +473,25 @@ impl MonitoringManager {
                 warn!("Failed to get board metrics: {}", e);
                 Err(SettingsError::Metrics(format!(
                     "Failed to get board metrics: {}",
+                    e
+                )))
+            }
+        }
+    }
+
+    /// Get all board StressMetrics - SIMPLIFIED to use monitoring_etcd directly
+    pub async fn get_board_stress_metrics(&mut self) -> Result<Vec<StressMetrics>, SettingsError> {
+        debug!("Getting all board stress metrics");
+
+        match crate::monitoring_etcd::get_all_stress_metrics().await {
+            Ok(metrics) => {
+                info!("Retrieved {} board stress metrics", metrics.len());
+                Ok(metrics)
+            }
+            Err(e) => {
+                warn!("Failed to get board stress metrics: {}", e);
+                Err(SettingsError::Metrics(format!(
+                    "Failed to get board stress metrics: {}",
                     e
                 )))
             }

@@ -63,7 +63,8 @@ export function Workloads({ onPodClick, pods, setPods, recentEvents, setRecentEv
 
     // Fetch function
     const fetchNodes = () => {
-      fetch(`${settingserviceApiUrl}/api/v1/metrics/nodes`)
+//      fetch(`${settingserviceApiUrl}/api/v1/metrics/nodes`)
+      fetch('/api/v1/metrics/nodes')
         .then(res => res.json())
         .then(data => {
           if (Array.isArray(data) && data.length > 0) {
@@ -307,16 +308,18 @@ export function Workloads({ onPodClick, pods, setPods, recentEvents, setRecentEv
   // Calculate node-specific or cluster-wide metrics
   const currentPods =
     selectedNode === "all"
-      ? pods
-      : pods.filter((pod) => pod.node === selectedNode);
+    ? pods.filter(pod => pod.status.toLowerCase() !== "exited")
+    : pods.filter(pod => pod.node === selectedNode && pod.status.toLowerCase() !== "exited");
+  //    ? pods
+  //    : pods.filter((pod) => pod.node === selectedNode);
   const nodeRunningPods = currentPods.filter(
-    (pod) => pod.status === "Running"
+    (pod) => pod.status === "running"
   ).length;
   const nodePendingPods = currentPods.filter(
-    (pod) => pod.status === "Pending"
+    (pod) => pod.status === "pending"
   ).length;
   const nodeFailedPods = currentPods.filter(
-    (pod) => pod.status === "Failed"
+    (pod) => pod.status === "failed"
   ).length;
 
   // Calculate cluster health based on actual data
@@ -372,7 +375,7 @@ export function Workloads({ onPodClick, pods, setPods, recentEvents, setRecentEv
 
   // Pod status data for chart - node-specific or cluster-wide
   const podStatusData = [
-    { name: "Running", value: nodeRunningPods, color: "#10b981" },
+    { name: "running", value: nodeRunningPods, color: "#10b981" },
     { name: "Pending", value: nodePendingPods, color: "#f59e0b" },
     { name: "Failed", value: nodeFailedPods, color: "#ef4444" },
   ].filter((item) => item.value > 0);
@@ -457,7 +460,7 @@ export function Workloads({ onPodClick, pods, setPods, recentEvents, setRecentEv
   // Helper function to get status badge
   const getStatusBadge = (status: string) => {
     const statusConfig = {
-      Running: {
+      running: {
         variant: "default" as const,
         className:
           "bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800",
@@ -490,13 +493,14 @@ export function Workloads({ onPodClick, pods, setPods, recentEvents, setRecentEv
     );
   };
 
-  // Filter pods by selected node and search term
+  // Filter pods by selected node and search term (exclude exited pods)
   const filteredPods = pods.filter((pod) => {
     const matchesSearch = pod.name
       .toLowerCase()
       .includes(searchTerm.toLowerCase());
     const matchesNode = selectedNode === "all" || pod.node === selectedNode;
-    return matchesSearch && matchesNode;
+    const isNotExited = pod.status.toLowerCase() !== "exited";
+    return matchesSearch && matchesNode && isNotExited;
   });
 
   return (
@@ -576,7 +580,7 @@ export function Workloads({ onPodClick, pods, setPods, recentEvents, setRecentEv
                     {currentPods.length}
                   </span>
                   <Badge className="bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-200 text-xs">
-                    {nodeRunningPods} Running
+                    {nodeRunningPods} running
                   </Badge>
                 </div>
               </div>
@@ -831,13 +835,13 @@ export function Workloads({ onPodClick, pods, setPods, recentEvents, setRecentEv
                 </CardDescription>
               </div>
             </div>
-            <Button
+           {/* <Button
               className="bg-primary hover:bg-primary/80 text-primary-foreground shadow-lg hover:shadow-xl transition-all gap-2"
               onClick={() => setCreatePodDialog(true)}
             >
               <Plus className="w-4 h-4" />
               Add Pod
-            </Button>
+            </Button> v*/}
           </div>
         </CardHeader>
         <CardContent className="overflow-visible">

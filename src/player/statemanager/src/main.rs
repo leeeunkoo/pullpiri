@@ -157,7 +157,7 @@ async fn initialize_grpc_server(
 
     println!("=== StateManager gRPC Server Stopped ===");
 }
-#[allow(dead_code)]
+
 async fn initialize_timpani_server() {
     // Allow tests to opt-out of starting the timpani server
     // Skip starting the timpani server when running tests or explicitly requested
@@ -188,7 +188,9 @@ async fn initialize_timpani_server() {
     println!("Starting Timpani gRPC server...");
     match Server::builder()
         .add_service(
-            common::external::fault_service_server::FaultServiceServer::new(timpani_server),
+            common::external::timpani::fault_service_server::FaultServiceServer::new(
+                timpani_server,
+            ),
         )
         .serve(addr)
         .await
@@ -252,11 +254,14 @@ async fn main() {
     // Launch gRPC server for external communication
     let grpc_task = initialize_grpc_server(tx_container, tx_state_change);
 
+    // Launch gRPC server for timpani deadline miss
+    let timpani_task = initialize_timpani_server();
+
     println!("Launching StateManager components concurrently...");
 
     // Run both components concurrently until shutdown
     // tokio::join! ensures both tasks complete before main exits
-    tokio::join!(manager_task, grpc_task);
+    tokio::join!(manager_task, grpc_task, timpani_task);
 
     // Both tasks return (), but we log completion for monitoring
     println!("StateManager service components have stopped:");
@@ -275,7 +280,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_launch_manager_skips_in_test_mode() {
-        std::env::set_var("PULLPIRI_TEST_MODE", "1");
+        unsafe {
+            std::env::set_var("PULLPIRI_TEST_MODE", "1");
+        }
 
         let (_tx_container, rx_container) = channel::<ContainerList>(10);
         let (_tx_state_change, rx_state_change) = channel::<StateChange>(10);
@@ -288,12 +295,16 @@ mod tests {
         .await;
         assert!(res.is_ok(), "launch_manager did not return in test mode");
 
-        std::env::remove_var("PULLPIRI_TEST_MODE");
+        unsafe {
+            std::env::remove_var("PULLPIRI_TEST_MODE");
+        }
     }
 
     #[tokio::test]
     async fn test_initialize_grpc_server_skips_in_test_mode() {
-        std::env::set_var("PULLPIRI_TEST_MODE", "1");
+        unsafe {
+            std::env::set_var("PULLPIRI_TEST_MODE", "1");
+        }
 
         let (tx_container, _rx_container) = channel::<ContainerList>(10);
         let (tx_state_change, _rx_state_change) = channel::<StateChange>(10);
@@ -308,13 +319,16 @@ mod tests {
             res.is_ok(),
             "initialize_grpc_server did not return in test mode"
         );
-
-        std::env::remove_var("PULLPIRI_TEST_MODE");
+        unsafe {
+            std::env::remove_var("PULLPIRI_TEST_MODE");
+        }
     }
 
     #[tokio::test]
     async fn test_initialize_timpani_server_skips_in_test_mode() {
-        std::env::set_var("PULLPIRI_TEST_MODE", "1");
+        unsafe {
+            std::env::set_var("PULLPIRI_TEST_MODE", "1");
+        }
 
         // Should return quickly because test mode short-circuits timpani startup
         let res = timeout(Duration::from_secs(1), initialize_timpani_server()).await;
@@ -323,7 +337,9 @@ mod tests {
             "initialize_timpani_server did not return in test mode"
         );
 
-        std::env::remove_var("PULLPIRI_TEST_MODE");
+        unsafe {
+            std::env::remove_var("PULLPIRI_TEST_MODE");
+        }
     }
 
     // Even when `PULLPIRI_TEST_MODE` is not explicitly set, test builds should
@@ -332,7 +348,9 @@ mod tests {
     #[tokio::test]
     async fn test_launch_and_grpc_skip_without_env_in_test_build() {
         // Ensure env var is not set for this test
-        std::env::remove_var("PULLPIRI_TEST_MODE");
+        unsafe {
+            std::env::remove_var("PULLPIRI_TEST_MODE");
+        }
 
         let (tx_container, rx_container) = channel::<ContainerList>(10);
         let (tx_state_change, rx_state_change) = channel::<StateChange>(10);
@@ -352,7 +370,9 @@ mod tests {
     #[tokio::test]
     async fn test_all_components_skip_in_test_mode_concurrently() {
         // Ensure test mode is set so none of the servers/managers actually start
-        std::env::set_var("PULLPIRI_TEST_MODE", "1");
+        unsafe {
+            std::env::set_var("PULLPIRI_TEST_MODE", "1");
+        }
 
         let (tx_container, rx_container) = channel::<ContainerList>(10);
         let (tx_state_change, rx_state_change) = channel::<StateChange>(10);
@@ -372,7 +392,9 @@ mod tests {
             "Concurrent startup tasks did not return in test mode"
         );
 
-        std::env::remove_var("PULLPIRI_TEST_MODE");
+        unsafe {
+            std::env::remove_var("PULLPIRI_TEST_MODE");
+        }
     }
 
     // Call the generated `main()` function (synchronous entry created by `#[tokio::main]`)
@@ -381,7 +403,9 @@ mod tests {
     fn test_main_invocation_without_env() {
         // Ensure the env var is not set and call main(); in test builds `cfg!(test)`
         // will short-circuit heavy startup so this is safe to run.
-        std::env::remove_var("PULLPIRI_TEST_MODE");
+        unsafe {
+            std::env::remove_var("PULLPIRI_TEST_MODE");
+        }
 
         // Call the generated main function which runs the runtime and joins tasks
         super::main();
@@ -390,8 +414,12 @@ mod tests {
     #[test]
     fn test_main_invocation_with_env() {
         // Explicit test-mode via env var should also keep startup light
-        std::env::set_var("PULLPIRI_TEST_MODE", "1");
+        unsafe {
+            std::env::set_var("PULLPIRI_TEST_MODE", "1");
+        }
         super::main();
-        std::env::remove_var("PULLPIRI_TEST_MODE");
+        unsafe {
+            std::env::remove_var("PULLPIRI_TEST_MODE");
+        }
     }
 }

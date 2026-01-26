@@ -1,0 +1,6 @@
+# Exclude local artifacts not needed in image
+node_modules
+npm-debug.log*
+.git
+.gitignore
+.DS_Store

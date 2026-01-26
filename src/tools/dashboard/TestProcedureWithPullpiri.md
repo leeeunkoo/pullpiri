@@ -30,7 +30,7 @@ Run the following command on **NUC1** to start ETCD as a container named `piccol
 
 ```bash
 podman run -it -d --net=host --name=piccolo-etcd \
-  gcr.io/etcd-development/etcd:v3.5.11 "/usr/local/bin/etcd"
+  gcr.io/etcd-development/etcd:v3.5.24 "/usr/local/bin/etcd"
 ```
 
 Verify ETCD is running:

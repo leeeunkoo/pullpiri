@@ -4,7 +4,7 @@
 #################################
 # === Build Stage ===
 #################################
-FROM rust:1.85.0-slim AS builder
+FROM rust:1.88.0-slim AS builder
 
 ARG TARGETARCH
 
@@ -12,25 +12,18 @@ ENV TARGETARCH=${TARGETARCH}
 WORKDIR /piccolo
 
 # Copy shared source and both components
+COPY ./src/Cargo.toml .
 COPY ./src/common/ /piccolo/common/
 COPY ./src/server/ /piccolo/server/
-COPY ./src/agent/ /piccolo/agent/
-COPY ./src/player/ /piccolo/player
+COPY ./src/player/ /piccolo/player/
+# COPY ./src/agent/ /piccolo/agent/
 
 # Install build dependencies
 RUN apt update -y && \
-    apt install -y libdbus-1-dev pkg-config protobuf-compiler libssl-dev
+    apt install -y libdbus-1-dev pkg-config protobuf-compiler libssl-dev \
+    clang libclang-dev llvm-dev build-essential cmake
 
-# Build server binaries
-WORKDIR /piccolo/server
-RUN cargo build --release
-
-# Build agent binaries
-WORKDIR /piccolo/agent
-RUN cargo build --release
-
-# Build player binaries
-WORKDIR /piccolo/player
+# Build binaries
 RUN cargo build --release
 
 # Prepare glibc shared libraries
@@ -49,7 +42,8 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     for lib in \
         libc.so.6 libcap.so.2 libdbus-1.so.3 libgcc_s.so.1 \
         libgcrypt.so.20 libgpg-error.so.0 liblzma.so.5 \
-        liblz4.so.1 libm.so.6 libsystemd.so.0 libzstd.so.1; do \
+        liblz4.so.1 libm.so.6 libsystemd.so.0 libzstd.so.1 \
+        libstdc++.so.6; do \
         cp -v /lib/${ITEMARCH}-linux-gnu/$lib* /dummy/${ITEMARCH}-linux-gnu/ || true; \
     done
 
@@ -77,14 +71,14 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     fi
 
 # Copy built binaries
-COPY --from=builder /piccolo/server/target/release/apiserver /piccolo/
-COPY --from=builder /piccolo/server/target/release/monitoringserver /piccolo/
-COPY --from=builder /piccolo/server/target/release/policymanager /piccolo/
-COPY --from=builder /piccolo/server/target/release/settingsservice /piccolo/
-#COPY --from=builder /piccolo/agent/target/release/nodeagent /piccolo/
-COPY --from=builder /piccolo/player/target/release/actioncontroller /piccolo/
-COPY --from=builder /piccolo/player/target/release/filtergateway /piccolo/
-COPY --from=builder /piccolo/player/target/release/statemanager /piccolo/
+COPY --from=builder /piccolo/target/release/apiserver /piccolo/
+COPY --from=builder /piccolo/target/release/monitoringserver /piccolo/
+COPY --from=builder /piccolo/target/release/policymanager /piccolo/
+COPY --from=builder /piccolo/target/release/settingsservice /piccolo/
+#COPY --from=builder /piccolo/target/release/nodeagent /piccolo/
+COPY --from=builder /piccolo/target/release/actioncontroller /piccolo/
+COPY --from=builder /piccolo/target/release/filtergateway /piccolo/
+COPY --from=builder /piccolo/target/release/statemanager /piccolo/
 
 # Copy runtime settings
 COPY ./src/settings.yaml .

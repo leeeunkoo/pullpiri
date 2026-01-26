@@ -22,7 +22,7 @@ metadata:
   name: antipinch-enable
 spec:
   condition:
-  action: update
+  action: start
   target: antipinch-enable
 "#,
     )

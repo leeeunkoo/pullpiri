@@ -3,22 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-//! Running gRPC message sending to pharos
-use common::external::{
+//! Running gRPC message sending to timpani
+use common::external::timpani::{
     connect_timpani_server, sched_info_service_client::SchedInfoServiceClient, Response, SchedInfo,
     SchedPolicy, TaskInfo,
 };
 
-pub async fn add_sched_info() {
+pub async fn add_sched_info(workload_id: String, task_name: &str, node_id: &str) {
     println!("Connecting to Timpani server ....");
     let mut client = SchedInfoServiceClient::connect(connect_timpani_server())
         .await
         .unwrap();
 
     let request = SchedInfo {
-        workload_id: String::from("timpani_test"),
+        workload_id: workload_id,
         tasks: vec![TaskInfo {
-            name: String::from("container_task"),
+            name: task_name.to_string(),
             priority: 50,
             policy: SchedPolicy::Fifo as i32,
             cpu_affinity: 7,
@@ -26,7 +26,7 @@ pub async fn add_sched_info() {
             release_time: 0,
             runtime: 5000,   // 5 miliseconds
             deadline: 10000, // 10 miliseconds
-            node_id: String::from("HPC"),
+            node_id: node_id.to_string(),
             max_dmiss: 3,
         }],
     };
@@ -42,37 +42,6 @@ pub async fn add_sched_info() {
             println!("[add_sched_info] ERROR={:?}", e);
         }
     }
-}
-
-// Helper function to create default TimPani test request
-pub fn create_timpani_test_request() -> SchedInfo {
-    SchedInfo {
-        workload_id: String::from("timpani_test"),
-        tasks: vec![TaskInfo {
-            name: String::from("container_task"),
-            priority: 50,
-            policy: SchedPolicy::Fifo as i32,
-            cpu_affinity: 7,
-            period: 10000,
-            release_time: 0,
-            runtime: 5000,
-            deadline: 10000,
-            node_id: String::from("HPC"),
-            max_dmiss: 3,
-        }],
-    }
-}
-
-// Helper function to validate task constraints
-pub fn validate_task_constraints(task: &TaskInfo) -> bool {
-    task.release_time <= task.runtime
-        && task.runtime <= task.deadline
-        && task.deadline <= task.period
-}
-
-// Helper function to validate SchedInfo
-pub fn validate_sched_info(sched_info: &SchedInfo) -> bool {
-    !sched_info.workload_id.is_empty() && sched_info.tasks.iter().all(validate_task_constraints)
 }
 
 #[cfg(test)]
@@ -555,5 +524,36 @@ mod tests {
         assert_eq!(sched_info.tasks[0].node_id, "HPC");
         assert_eq!(sched_info.tasks[1].node_id, "ZONE");
         assert!(validate_sched_info(&sched_info));
+    }
+
+    // Helper function to create default TimPani test request
+    pub fn create_timpani_test_request() -> SchedInfo {
+        SchedInfo {
+            workload_id: String::from("timpani_test"),
+            tasks: vec![TaskInfo {
+                name: String::from("container_task"),
+                priority: 50,
+                policy: SchedPolicy::Fifo as i32,
+                cpu_affinity: 7,
+                period: 10000,
+                release_time: 0,
+                runtime: 5000,
+                deadline: 10000,
+                node_id: String::from("HPC"),
+                max_dmiss: 3,
+            }],
+        }
+    }
+
+    // Helper function to validate task constraints
+    pub fn validate_task_constraints(task: &TaskInfo) -> bool {
+        task.release_time <= task.runtime
+            && task.runtime <= task.deadline
+            && task.deadline <= task.period
+    }
+
+    // Helper function to validate SchedInfo
+    pub fn validate_sched_info(sched_info: &SchedInfo) -> bool {
+        !sched_info.workload_id.is_empty() && sched_info.tasks.iter().all(validate_task_constraints)
     }
 }

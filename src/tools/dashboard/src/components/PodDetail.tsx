@@ -176,7 +176,7 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case "Running":
+      case "running":
         return (
           <Badge className="bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800">
             <div className="w-2 h-2 bg-emerald-500 rounded-full mr-1 animate-pulse"></div>
@@ -388,7 +388,7 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
       </div>
 
       {/* Containers Section */}
-      <div>
+      {/*<div>
         <div className="flex items-center gap-3 mb-6">
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
             <Box className="w-4 h-4 text-primary-foreground" />
@@ -399,7 +399,7 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
           </div>
         </div>
         <div className="space-y-6">
-          {containers.map((container/*, index*/) => (  // 2025-09-23 comment out
+          {containers.map((container) => (  // 2025-09-23 comment out
             <Card key={container.name} className="bg-card/80 backdrop-blur-sm border-border/20 shadow-xl">
               <CardHeader>
                 <div className="flex items-center gap-3">
@@ -423,7 +423,6 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Basic Container Info */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/20 rounded-lg">
                   <div>
                     <p className="text-xs text-muted-foreground">Status</p>
@@ -443,7 +442,6 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
                   </div>
                 </div>
 
-                {/* Container Details Tabs */}
                 <Tabs defaultValue="ports" className="w-full">
                   <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="ports">Ports</TabsTrigger>
@@ -591,12 +589,12 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
             </Card>
           ))}
         </div>
-      </div>
+      </div> */}
 
 
 
       {/* Logs Section */}
-      <div>
+      {/*<div>
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
@@ -631,7 +629,7 @@ export function PodDetail({ podName, podData, onBack }: PodDetailProps) {
             </ScrollArea>
           </CardContent>
         </Card>
-      </div>
+      </div> */}
     </div>
   );
 }

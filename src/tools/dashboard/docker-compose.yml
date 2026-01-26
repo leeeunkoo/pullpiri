@@ -1,0 +1,11 @@
+services:
+  vite_app:
+    build: .
+    container_name: open-dashboard
+    ports:
+      - '5173:5173'
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development

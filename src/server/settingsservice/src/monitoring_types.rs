@@ -25,6 +25,24 @@ pub struct NodeInfo {
     pub ip: String,
 }
 
+/// JSON types for StressMonitoringMetric payload
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct CpuLoad {
+    pub core_id: u32,
+    pub load: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct StressMetrics {
+    pub process_name: String,
+    pub pid: u32,
+    pub core_masking: Option<String>,
+    pub core_count: Option<u32>,
+    pub fps: f64,
+    pub latency: u64,
+    pub cpu_loads: Vec<CpuLoad>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SocInfo {
     pub soc_id: String,

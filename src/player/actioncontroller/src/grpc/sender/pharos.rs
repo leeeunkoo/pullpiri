@@ -5,7 +5,7 @@
 
 //! Running gRPC message sending to pharos
 
-use common::pharos_service::{
+use common::external::pharos::{
     connect_pharos_server,
     pharos_network_service_connection_client::PharosNetworkServiceConnectionClient,
     RequestNetworkPodRequest, RequestNetworkPodResponse,
