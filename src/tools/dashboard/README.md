@@ -4,14 +4,14 @@
 -->
 # Pullpiri Dashboard
 
-Pullpiri Dashboard는 Podman 등 컨테이너 작업을 웹에서 직관적으로 관리할 수 있도록 만든 React 기반 대시보드입니다.  
+Pullpiri Dashboard는 Podman 등 컨테이너 작업을 웹에서 직관적으로 관리할 수 있도록 만든 React 기반 대시보드입니다.
 이 디렉토리의 코드는 Vite 기반 프론트엔드이며, 오픈소스 pullpiri 프로젝트의 일부로 배포됩니다.
 
 ## 시작하기
 
 ### 1. 의존성 설치
 
-**최상위 pullpiri 프로젝트 루트**에서(즉, `package.json`이 있는 곳)  
+**최상위 pullpiri 프로젝트 루트**에서(즉, `package.json`이 있는 곳)
 (처음 설치라면)
 ```sh
 npm install
@@ -55,15 +55,28 @@ src/tools/dashboard/
 ## 자주 묻는 질문(FAQ)
 
 ### Q. 대시보드에서 Pod 리스트가 안 보입니다!
-A. 백엔드에서 podman 정보를 제공하는 API 서버가 정상적으로 실행 중이어야 합니다.  
-(예: `podman ps` 명령을 래핑하는 Express 서버 등)  
+A. 백엔드에서 podman 정보를 제공하는 API 서버가 정상적으로 실행 중이어야 합니다.
+(예: `podman ps` 명령을 래핑하는 Express 서버 등)
 
 ### Q. package 설치 중 오류가 발생합니다.
 A. Node.js(권장 18 이상)와 npm(권장 9 이상)이 설치되어 있는지 확인하세요.
 
 ### Q. 포트(5173)가 이미 사용 중이라고 나옵니다.
-A. 이미 떠 있는 Vite 개발 서버가 있다면 종료하거나,  
+A. 이미 떠 있는 Vite 개발 서버가 있다면 종료하거나,
 `vite.config.ts`에서 다른 포트로 변경하세요.
 
 ---
+
+## Tests
+
+Run unit tests with Vitest (from `src/tools/dashboard`):
+
+```bash
+npm install   # ensure dev deps are installed
+npm test      # run vitest in watch mode
+npm run test:coverage  # run once and produce coverage (html in coverage/)
+```
+
+Coverage thresholds are set to 80% for lines, statements, functions and branches.
+
 
