@@ -3,7 +3,7 @@
 
 //! REST API server module
 use crate::monitoring_etcd;
-use crate::monitoring_types::{BoardInfo, NodeInfo, SocInfo};
+use crate::monitoring_types::{BoardInfo, NodeInfo, SocInfo}; //, StressMetrics};
 use crate::settings_config::{Config, ConfigManager, ConfigSummary, ValidationResult};
 use crate::settings_history::{HistoryEntry, HistoryManager};
 use crate::settings_monitoring::{
@@ -45,6 +45,8 @@ pub struct MetricsQuery {
     pub filter_id: Option<String>,
     pub page: Option<u32>,
     pub page_size: Option<u32>,
+    pub process_name: Option<String>,
+    pub pid: Option<i64>,
 }
 
 /// Query parameters for history API
@@ -240,6 +242,12 @@ impl ApiServer {
             .route("/api/v1/metrics/socs", get(get_all_soc_metrics))
             .route("/api/v1/metrics/boards", get(get_all_board_metrics))
             .route("/api/v1/metrics/nodes/:name", get(get_node_metric_by_name))
+            // Stress metrics endpoints
+            .route("/api/v1/metrics/stressmonitor", get(get_all_stress_metrics))
+            .route(
+                "/api/v1/metrics/stressmonitor/:id",
+                get(get_stress_metric_by_process_name),
+            )
             .route(
                 "/api/v1/metrics/containers/:id",
                 get(get_container_metric_by_id),
@@ -1135,15 +1143,23 @@ async fn withdraw_yaml_artifact(
 async fn send_artifact_to_api_server(yaml_content: &str, method: &str) -> Result<String, String> {
     use reqwest::Client;
 
+    debug!("send_artifact_to_api_server - Get Client");
     let client = Client::new();
-    let api_server_url = "http://localhost:47099/api/artifact";
+    //let api_server_url = "http://localhost:47099/api/artifact";
+    debug!("send_artifact_to_api_server - Create URL");
+    let api_server_url = format!(
+        "http://{}/api/artifact",
+        common::apiserver::open_rest_server()
+    );
 
+    debug!("send_artifact_to_api_server - Create Request");
     let request = match method {
         "POST" => client.post(api_server_url),
         "DELETE" => client.delete(api_server_url),
         _ => return Err("Unsupported HTTP method".to_string()),
     };
 
+    debug!("send_artifact_to_api_server - Send Request");
     let response = request
         .header("Content-Type", "text/plain")
         .body(yaml_content.to_string())
@@ -1151,6 +1167,7 @@ async fn send_artifact_to_api_server(yaml_content: &str, method: &str) -> Result
         .await
         .map_err(|e| format!("HTTP request failed: {}", e))?;
 
+    debug!("send_artifact_to_api_server - Process Response");
     if response.status().is_success() {
         let response_text = response
             .text()
@@ -1227,6 +1244,93 @@ async fn get_all_board_metrics(
                 e
             )))
         }
+    }
+}
+
+async fn get_all_stress_metrics(
+    Query(query): Query<MetricsQuery>,
+    State(_state): State<ApiState>,
+) -> Result<Json<Vec<Value>>, (StatusCode, Json<ErrorResponse>)> {
+    debug!("GET /api/v1/metrics/stressmonitor with query: {:?}", query);
+
+    match crate::monitoring_etcd::get_all_stress_metrics().await {
+        Ok(mut metrics) => {
+            if let Some(ref q) = query.process_name {
+                metrics = metrics
+                    .into_iter()
+                    .filter(|m| m.process_name == *q)
+                    .collect();
+            }
+            if let Some(pid_i64) = query.pid {
+                if pid_i64 < 0 {
+                    // no matches for negative pid
+                    metrics.clear();
+                } else {
+                    let pid_u = pid_i64 as u32;
+                    metrics = metrics.into_iter().filter(|m| m.pid == pid_u).collect();
+                }
+            }
+            // Convert StressMetrics -> serde_json::Value for the API return type
+            let values: Vec<Value> = metrics
+                .into_iter()
+                .map(|m| serde_json::to_value(m).unwrap_or(Value::Null))
+                .collect();
+
+            Ok(Json(values))
+        }
+        Err(e) => Err(internal_error(&format!(
+            "Failed to get stress metrics: {}",
+            e
+        ))),
+    }
+}
+async fn get_stress_metric_by_process_name(
+    Path(id): Path<String>,
+    State(_state): State<ApiState>,
+) -> Result<Json<Value>, (StatusCode, Json<ErrorResponse>)> {
+    debug!("GET /api/v1/metrics/stressmonitor/{}", id);
+
+    match crate::monitoring_etcd::get_all_stress_metrics().await {
+        Ok(metrics) => {
+            // id may be "process_name", "process:pid" or a pid string
+            if let Some((proc_part, pid_part)) = id.split_once(':') {
+                if let Ok(pid_val) = pid_part.parse::<i64>() {
+                    let pid_u = if pid_val < 0 {
+                        // impossible; no match
+                        None
+                    } else {
+                        Some(pid_val as u32)
+                    };
+                    if let Some(pid_u) = pid_u {
+                        for m in metrics {
+                            if m.process_name == proc_part && m.pid == pid_u {
+                                return Ok(Json(serde_json::to_value(m).unwrap()));
+                            }
+                        }
+                    }
+                }
+            } else if let Ok(pid_val) = id.parse::<i64>() {
+                if pid_val >= 0 {
+                    let pid_u = pid_val as u32;
+                    for m in metrics {
+                        if m.pid == pid_u {
+                            return Ok(Json(serde_json::to_value(m).unwrap()));
+                        }
+                    }
+                }
+            } else {
+                for m in metrics {
+                    if m.process_name == id {
+                        return Ok(Json(serde_json::to_value(m).unwrap()));
+                    }
+                }
+            }
+            Err(not_found_error("Stress metric not found"))
+        }
+        Err(e) => Err(internal_error(&format!(
+            "Failed to get stress metrics: {}",
+            e
+        ))),
     }
 }
 
@@ -1711,6 +1815,8 @@ mod tests {
             filter_id: Some("filter1".to_string()),
             page: Some(1),
             page_size: Some(10),
+            process_name: None,
+            pid: None,
         };
 
         assert_eq!(query.component.as_ref().unwrap(), "cpu");
@@ -1793,6 +1899,8 @@ mod tests {
             filter_id: Some("f".repeat(500)), // Long filter ID
             page: Some(u32::MAX),
             page_size: Some(u32::MAX),
+            process_name: Some("a".repeat(1000)),
+            pid: Some(i64::MAX),
         };
 
         assert_eq!(query.component.as_ref().unwrap().len(), 1000);
@@ -1954,6 +2062,8 @@ mod tests {
             filter_id: Some("filter1".to_string()),
             page: Some(1),
             page_size: Some(10),
+            process_name: None,
+            pid: None,
         };
         let debug_str = format!("{:?}", metrics_query);
         assert!(debug_str.contains("MetricsQuery"));
@@ -2509,6 +2619,8 @@ mod tests {
             filter_id: Some("non-existent-filter".to_string()),
             page: None,
             page_size: None,
+            process_name: None,
+            pid: None,
         };
 
         // Call the handler directly
@@ -2531,6 +2643,8 @@ mod tests {
             filter_id: None,
             page: Some(1),
             page_size: Some(10),
+            process_name: None,
+            pid: None,
         };
 
         // Call the handler directly

@@ -5,7 +5,7 @@
 
 use common::apiserver::api_server_connection_client::ApiServerConnectionClient;
 use common::monitoringserver::{ContainerList, SendContainerListResponse};
-use common::nodeagent::{
+use common::nodeagent::fromapiserver::{
     HeartbeatRequest, HeartbeatResponse, NodeRegistrationRequest, NodeRegistrationResponse,
     StatusAck, StatusReport,
 };
@@ -153,7 +153,7 @@ impl NodeAgentSender {
 
         Ok(tonic::Response::new(HeartbeatResponse {
             ack: true,
-            updated_config: Some(common::nodeagent::ClusterConfig {
+            updated_config: Some(common::nodeagent::fromapiserver::ClusterConfig {
                 master_endpoint,
                 heartbeat_interval: 30,
                 settings: std::collections::HashMap::new(),
@@ -184,7 +184,7 @@ mod tests {
     use common::monitoringserver::{
         ContainerList, NodeInfo, SendContainerListResponse, SendNodeInfoResponse,
     };
-    use common::nodeagent::{
+    use common::nodeagent::fromapiserver::{
         HeartbeatRequest, HeartbeatResponse, NodeRegistrationRequest, NodeRegistrationResponse,
         StatusAck, StatusReport,
     };

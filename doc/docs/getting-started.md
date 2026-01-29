@@ -110,7 +110,7 @@ You can see container list via `podman ps`. (infra container is omitted.)
 ```Text
 [root@master pullpiri]# podman ps
 CONTAINER ID  IMAGE                                 COMMAND               CREATED         STATUS         PORTS          NAMES
-fd03b211e2ac  gcr.io/etcd-development/etcd:v3.5.11  --data-dir=/etcd-...  32 seconds ago  Up 32 seconds  2379-2380/tcp  piccolo-server-etcd
+fd03b211e2ac  gcr.io/etcd-development/etcd:v3.5.24  --data-dir=/etcd-...  32 seconds ago  Up 32 seconds  2379-2380/tcp  piccolo-server-etcd
 c6fbbb6feca5  localhost/pullpiri-server:latest                            32 seconds ago  Up 31 seconds                 piccolo-server-apiserver
 341edada2c33  localhost/pullpiri-agent:latest                             31 seconds ago  Up 31 seconds                 piccolo-agent-nodeagent
 eee2153bb581  localhost/pullpiri-player:latest                            31 seconds ago  Up 30 seconds                 piccolo-player-filtergateway

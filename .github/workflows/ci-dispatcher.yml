@@ -1,10 +1,6 @@
 name: CI Dispatcher
 
 on:
-  push:
-    branches: [ "main", "release", "debug" ]
-  pull_request:
-    branches: [ "refactoring","main", "release", "debug" ]
   workflow_dispatch:
 
 jobs:

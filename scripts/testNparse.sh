@@ -75,6 +75,25 @@ run_tests() {
       # Count number of passed and failed tests using jq
       passed=$(jq -r 'select(.type == "test" and .event == "ok") | .name' "$output_json" | wc -l)
       failed=$(jq -r 'select(.type == "test" and .event == "failed") | .name' "$output_json" | wc -l)
+      
+      # Print detailed list of failed tests
+      if [[ "$failed" -gt 0 ]]; then
+        echo "::group::❌ Failed tests in $label" | tee -a "$LOG_FILE"
+        jq -r 'select(.type == "test" and .event == "failed") | "  ❌ \(.name)"' "$output_json" | tee -a "$LOG_FILE"
+        echo "::endgroup::" | tee -a "$LOG_FILE"
+        
+        # Print failure reasons/messages
+        echo "::group::📋 Failure details for $label" | tee -a "$LOG_FILE"
+        jq -r 'select(.type == "test" and .event == "failed") | "Test: \(.name)\nReason: \(.stdout // "No output captured")\n"' "$output_json" | tee -a "$LOG_FILE"
+        echo "::endgroup::" | tee -a "$LOG_FILE"
+      fi
+      
+      # Print list of passed tests (can be collapsed in CI)
+      if [[ "$passed" -gt 0 ]]; then
+        echo "::group::✅ Passed tests in $label ($passed tests)" | tee -a "$LOG_FILE"
+        jq -r 'select(.type == "test" and .event == "ok") | "  ✅ \(.name)"' "$output_json" | tee -a "$LOG_FILE"
+        echo "::endgroup::" | tee -a "$LOG_FILE"
+      fi
     else
       echo "::warning ::jq not found, cannot parse JSON test output."
       passed=0
@@ -115,10 +134,16 @@ fi
 [[ -f "$COMMON_MANIFEST" ]] && run_tests "$COMMON_MANIFEST" "common" || echo "::warning ::$COMMON_MANIFEST missing."
 
 # Step 2: Start `filtergateway` and `nodeagent` before testing `apiserver`
+rm -rf /tmp/pullpiri_shared_rocksdb
+mkdir -p /tmp/pullpiri_shared_rocksdb
+# Make directory writable by all users (container needs write access)
+chmod 777 /tmp/pullpiri_shared_rocksdb
+
 start_service "$FILTERGATEWAY_MANIFEST" "filtergateway"
 start_service "$AGENT_MANIFEST" "nodeagent"
 sleep 3  # Give services time to initialize
 start_service "$STATEMANAGER_MANIFEST" "statemanager"
+sleep 3  # Give services time to initialize
 [[ -f "$APISERVER_MANIFEST" ]] && run_tests "$APISERVER_MANIFEST" "apiserver" || echo "::warning ::$APISERVER_MANIFEST missing."
 cleanup  # Stop background services
 
@@ -129,7 +154,7 @@ cleanup  # Stop background services
 # Step 4: Start `actioncontroller` and `statemanager` before testing `filtergateway`
 start_service "$ACTIONCONTROLLER_MANIFEST" "actioncontroller"
 start_service "$STATEMANAGER_MANIFEST" "statemanager"
-etcdctl del "" --prefix
+# Note: RocksDB data cleanup handled by service or via gRPC API if needed
 sleep 3
 [[ -f "$FILTERGATEWAY_MANIFEST" ]] && run_tests "$FILTERGATEWAY_MANIFEST" "filtergateway" || echo "::warning ::$FILTERGATEWAY_MANIFEST missing."
 cleanup  # Stop actioncontroller

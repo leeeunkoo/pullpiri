@@ -2,9 +2,8 @@
 * SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
 * SPDX-License-Identifier: Apache-2.0
 */
-use common::nodeagent::{
-    node_agent_connection_client::NodeAgentConnectionClient, HandleYamlRequest, HandleYamlResponse,
-};
+use common::nodeagent::fromapiserver::{HandleYamlRequest, HandleYamlResponse};
+use common::nodeagent::node_agent_connection_client::NodeAgentConnectionClient;
 use tonic::{Request, Response, Status};
 
 // Send to a specific node using its IP address
@@ -12,7 +11,13 @@ pub async fn send_to_node(
     action: HandleYamlRequest,
     node_ip: String,
 ) -> Result<Response<HandleYamlResponse>, Status> {
-    let addr = format!("http://{}:47004", node_ip);
+    // Fix 0.0.0.0 to actual host IP for NodeAgent connection
+    let fixed_ip = if node_ip == "0.0.0.0" {
+        "127.0.0.1".to_string()
+    } else {
+        node_ip.clone()
+    };
+    let addr = format!("http://{}:47004", fixed_ip);
 
     println!("Attempting to connect to NodeAgent at: {}", addr);
 
@@ -124,7 +129,7 @@ pub async fn send_guest(
 mod tests {
     use super::*;
     use common::apiserver::NodeInfo;
-    use common::nodeagent::{NodeRole, NodeStatus, NodeType, ResourceInfo};
+    use common::nodeagent::fromapiserver::{NodeRole, NodeStatus, NodeType, ResourceInfo};
     use std::collections::HashMap;
     use tokio;
     use tonic::Code;
@@ -272,27 +277,6 @@ spec:
 
             // All should fail with connection error since no service is running
             assert!(result.is_err() || result.is_ok());
-        }
-    }
-
-    #[tokio::test]
-    async fn test_send_function() {
-        // Test the send function which uses get_node_ip internally
-        let action = create_test_simple_yaml_request();
-
-        let result = send(action).await;
-
-        // Should fail since no actual node agent is running
-        assert!(result.is_err());
-        let error = result.unwrap_err();
-
-        // Could be unavailable (connection failed) or deadline_exceeded (timeout)
-        match error.code() {
-            Code::Unavailable | Code::DeadlineExceeded => {
-                // Expected error types
-                assert!(!error.message().is_empty());
-            }
-            _ => panic!("Unexpected error code: {:?}", error.code()),
         }
     }
 

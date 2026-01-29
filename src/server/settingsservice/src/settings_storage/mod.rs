@@ -5,44 +5,29 @@
 
 use crate::settings_utils::error::StorageError;
 use async_trait::async_trait;
-use etcd_client::{Client, ConnectOptions, GetOptions};
 use serde_json::Value;
 use tracing::debug;
 
-/// ETCD client wrapper for Settings Service
+/// ETCD client wrapper for Settings Service (now using common::etcd)
 pub struct EtcdClient {
-    client: Client,
+    // No longer need direct etcd client - use common::etcd interface
 }
 
 impl EtcdClient {
-    /// Create a new ETCD client
-    pub async fn new(endpoints: Vec<String>) -> Result<Self, StorageError> {
-        debug!("Connecting to ETCD endpoints: {:?}", endpoints);
-
-        let client = Client::connect(endpoints, Some(ConnectOptions::new()))
-            .await
-            .map_err(|e| {
-                StorageError::ConnectionFailed(format!("Failed to connect to ETCD: {}", e))
-            })?;
-
-        Ok(Self { client })
+    /// Create a new ETCD client (now using common::etcd)
+    pub async fn new(_endpoints: Vec<String>) -> Result<Self, StorageError> {
+        debug!("Using common::etcd interface for RocksDB storage");
+        // No need to connect to etcd endpoints - common::etcd handles RocksDB initialization
+        Ok(Self {})
     }
 
     /// Get a value by key
     pub async fn get(&mut self, key: &str) -> Result<Option<String>, StorageError> {
         debug!("Getting key: {}", key);
 
-        let resp =
-            self.client.get(key, None).await.map_err(|e| {
-                StorageError::OperationFailed(format!("Get operation failed: {}", e))
-            })?;
-
-        if let Some(kv) = resp.kvs().first() {
-            let value = String::from_utf8(kv.value().to_vec())
-                .map_err(|e| StorageError::SerializationError(format!("Invalid UTF-8: {}", e)))?;
-            Ok(Some(value))
-        } else {
-            Ok(None)
+        match common::etcd::get(key).await {
+            Ok(value) => Ok(Some(value)),
+            Err(_) => Ok(None), // Key not found
         }
     }
 
@@ -50,8 +35,7 @@ impl EtcdClient {
     pub async fn put(&mut self, key: &str, value: &str) -> Result<(), StorageError> {
         debug!("Putting key: {}, value length: {}", key, value.len());
 
-        self.client
-            .put(key, value, None)
+        common::etcd::put(key, value)
             .await
             .map_err(|e| StorageError::OperationFailed(format!("Put operation failed: {}", e)))?;
 
@@ -62,33 +46,21 @@ impl EtcdClient {
     pub async fn delete(&mut self, key: &str) -> Result<bool, StorageError> {
         debug!("Deleting key: {}", key);
 
-        let resp = self.client.delete(key, None).await.map_err(|e| {
-            StorageError::OperationFailed(format!("Delete operation failed: {}", e))
-        })?;
-
-        Ok(resp.deleted() > 0)
+        match common::etcd::delete(key).await {
+            Ok(()) => Ok(true),
+            Err(_) => Ok(false), // Key didn't exist
+        }
     }
 
     /// List keys with a prefix
     pub async fn list(&mut self, prefix: &str) -> Result<Vec<(String, String)>, StorageError> {
         debug!("Listing keys with prefix: {}", prefix);
 
-        let get_options = Some(GetOptions::new().with_prefix());
-        let resp =
-            self.client.get(prefix, get_options).await.map_err(|e| {
-                StorageError::OperationFailed(format!("List operation failed: {}", e))
-            })?;
+        let kvs = common::etcd::get_all_with_prefix(prefix)
+            .await
+            .map_err(|e| StorageError::OperationFailed(format!("List operation failed: {}", e)))?;
 
-        let mut results = Vec::new();
-        for kv in resp.kvs() {
-            let key = String::from_utf8(kv.key().to_vec()).map_err(|e| {
-                StorageError::SerializationError(format!("Invalid UTF-8 in key: {}", e))
-            })?;
-            let value = String::from_utf8(kv.value().to_vec()).map_err(|e| {
-                StorageError::SerializationError(format!("Invalid UTF-8 in value: {}", e))
-            })?;
-            results.push((key, value));
-        }
+        let results: Vec<(String, String)> = kvs.into_iter().map(|kv| (kv.0, kv.1)).collect();
 
         Ok(results)
     }

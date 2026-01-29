@@ -5,6 +5,8 @@
 #BODY=$(< ./resources/helloworld.yaml)
 BODY=$(< ./resources/helloworld_no_condition.yaml)
 
-curl --location 'http://0.0.0.0:47099/api/artifact' \
+#URL="10.0.0.30:8080/api/v1/yaml"
+
+curl -X POST 'http://127.0.0.1:47099/api/artifact' \
 --header 'Content-Type: text/plain' \
 --data "${BODY}"

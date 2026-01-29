@@ -23,10 +23,9 @@ cd "$PROJECT_ROOT"
 
 # List of Cargo manifest paths for different components
 MANIFESTS=(
-  src/common/Cargo.toml
-  src/agent/Cargo.toml
-  src/player/Cargo.toml
-  src/server/Cargo.toml
+  src/Cargo.toml
+  src/agent/nodeagent/Cargo.toml
+  src/server/rocksdbservice/Cargo.toml
   src/tools/Cargo.toml
 )
 

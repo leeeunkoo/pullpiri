@@ -24,18 +24,17 @@ tower-http = { version = "0.6.1", features = ["cors", "trace"] }
 
 # Serialization
 serde = { version = "1.0.214", features = ["derive"] }
-serde_json = "1.0"
+serde_json = "1.0.143"
 serde_yaml = "0.9"
 
 # Validation
 jsonschema = "0.18"
 
-# Data storage
-etcd-client = "0.14"
+# Data storage (now handled by common::rocksdb which uses RocksDB)
 
 # CLI
-clap = { version = "4.0", features = ["derive", "env"] }
-rustyline = "14.0"
+clap = { version = "4.5.47", features = ["derive", "env"] }
+rustyline = "17.0.2"
 
 # Logging and errors
 tracing = "0.1"
@@ -56,7 +55,8 @@ reqwest = { version = "0.12", features = ["json"] }
 async-trait = "0.1"
 
 # Configuration
-config = "0.14"
+# config = "0.15.19"
+config = { version = "0.15.19", default-features = false, features = ["json", "yaml", "toml"] }
 
 # Common shared library
 common = { workspace = true }

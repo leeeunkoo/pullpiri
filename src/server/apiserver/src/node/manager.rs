@@ -7,7 +7,7 @@
 
 use common::apiserver::NodeInfo;
 use common::etcd;
-use common::nodeagent::{NodeRegistrationRequest, NodeStatus};
+use common::nodeagent::fromapiserver::{NodeRegistrationRequest, NodeStatus};
 
 /// Node manager for handling cluster node operations
 #[derive(Clone)]
@@ -66,10 +66,10 @@ impl NodeManager {
 
         let mut nodes = Vec::new();
         for kv in kvs {
-            match serde_json::from_str::<NodeInfo>(&kv.value) {
+            match serde_json::from_str::<NodeInfo>(&kv.1) {
                 Ok(node) => nodes.push(node),
                 Err(e) => {
-                    eprintln!("Failed to parse node json for key {}: {}", kv.key, e);
+                    eprintln!("Failed to parse node json for key {}: {}", kv.0, e);
                     continue;
                 }
             }
@@ -162,7 +162,7 @@ impl NodeManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::nodeagent::{NodeRole, NodeStatus, NodeType, ResourceInfo};
+    use common::nodeagent::fromapiserver::{NodeRole, NodeStatus, NodeType, ResourceInfo};
     use std::collections::HashMap;
 
     fn create_test_resource_info() -> ResourceInfo {

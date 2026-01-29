@@ -3,16 +3,13 @@
 
 .PHONY: default build
 build:
-	cargo build --manifest-path=agent/Cargo.toml
-	cargo build --manifest-path=player/Cargo.toml
-	cargo build --manifest-path=server/Cargo.toml
+	cargo build
 
 .PHONY: clean
 clean:
-	cargo clean --manifest-path=agent/Cargo.toml
-	cargo clean --manifest-path=common/Cargo.toml
-	cargo clean --manifest-path=player/Cargo.toml
-	cargo clean --manifest-path=server/Cargo.toml
+	cargo clean
+	cargo clean --manifest-path=agent/nodeagent/Cargo.toml
+	cargo clean --manifest-path=server/rocksdbservice/Cargo.toml
 	cargo clean --manifest-path=tools/Cargo.toml
 
 .PHONY: tool
@@ -21,16 +18,14 @@ tool:
 
 .PHONY: fmt
 fmt:
-	cd agent && cargo fmt
-	cd common && cargo fmt
-	cd player && cargo fmt
-	cd server && cargo fmt
+	cargo fmt
+	cd agent/nodeagent && cargo fmt
+	cd server/rocksdbservice && cargo fmt
 	cd tools && cargo fmt
 
 .PHONY: clippy
 clippy:
-	cd agent && cargo clippy
-	cd common && cargo clippy
-	cd player && cargo clippy
-	cd server && cargo clippy
+	cargo clippy
+	cd agent/nodeagent && cargo clippy
+	cd server/rocksdbservice && cargo clippy
 	cd tools && cargo clippy

@@ -444,7 +444,7 @@ impl FilterGatewayManager {
     /// * `Result<Vec<String>>` - `Ok(_)` contains scenario yaml string vector
     async fn read_all_scenario_from_etcd() -> common::Result<Vec<String>> {
         let kv_scenario = common::etcd::get_all_with_prefix("Scenario").await?;
-        let values = kv_scenario.into_iter().map(|kv| kv.value).collect();
+        let values = kv_scenario.into_iter().map(|kv| kv.1).collect();
 
         Ok(values)
     }

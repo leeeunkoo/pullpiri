@@ -7,13 +7,117 @@
 
 pub mod data;
 
-use common::spec::artifact::Artifact;
-use common::spec::artifact::Model;
-use common::spec::artifact::Network;
-use common::spec::artifact::Node;
-use common::spec::artifact::Package;
-use common::spec::artifact::Scenario;
-use common::spec::artifact::Volume;
+use common::spec::artifact::{Artifact, Model, Network, Node, Package, Scenario, Volume};
+use common::spec::k8s::Pod;
+
+// Artifact kind constants
+const KIND_SCENARIO: &str = "Scenario";
+const KIND_PACKAGE: &str = "Package";
+const KIND_VOLUME: &str = "Volume";
+const KIND_NETWORK: &str = "Network";
+const KIND_NODE: &str = "Node";
+const KIND_MODEL: &str = "Model";
+
+// YAML document separator
+const YAML_SEPARATOR: &str = "---";
+
+/// Parse artifact kind and name from YAML value
+fn parse_artifact_info(value: &serde_yaml::Value) -> Option<(String, String)> {
+    let kind = value.get("kind")?.as_str()?;
+
+    let name = match kind {
+        KIND_SCENARIO => serde_yaml::from_value::<Scenario>(value.clone())
+            .ok()?
+            .get_name(),
+        KIND_PACKAGE => serde_yaml::from_value::<Package>(value.clone())
+            .ok()?
+            .get_name(),
+        KIND_VOLUME => serde_yaml::from_value::<Volume>(value.clone())
+            .ok()?
+            .get_name(),
+        KIND_NETWORK => serde_yaml::from_value::<Network>(value.clone())
+            .ok()?
+            .get_name(),
+        KIND_NODE => serde_yaml::from_value::<Node>(value.clone())
+            .ok()?
+            .get_name(),
+        KIND_MODEL => serde_yaml::from_value::<Model>(value.clone())
+            .ok()?
+            .get_name(),
+        _ => return None,
+    };
+
+    Some((kind.to_string(), name))
+}
+
+/// Send initial state change notification to StateManager
+async fn notify_scenario_state(scenario_name: &str, target_state: &str) {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as i64;
+
+    let state_change = common::statemanager::StateChange {
+        resource_type: common::statemanager::ResourceType::Scenario as i32,
+        resource_name: scenario_name.to_string(),
+        current_state: String::new(),
+        target_state: target_state.to_string(),
+        transition_id: format!("apiserver-scenario-init-{}", timestamp),
+        timestamp_ns: timestamp,
+        source: "apiserver".to_string(),
+    };
+
+    println!("🔄 SCENARIO STATE INITIALIZATION: ApiServer Setting Initial State");
+    println!("   📋 Scenario: {}", scenario_name);
+    println!("   🔄 Initial State: → {}", target_state);
+    println!("   📤 Sending StateChange to StateManager");
+
+    let mut state_sender = crate::grpc::sender::statemanager::StateManagerSender::new();
+    match state_sender.send_state_change(state_change).await {
+        Ok(_) => println!(
+            "   ✅ Successfully set scenario {} to {} state",
+            scenario_name, target_state
+        ),
+        Err(e) => println!("   ❌ Failed to send state change to StateManager: {:?}", e),
+    }
+}
+
+/// Process and store a single artifact document
+async fn process_artifact_document(doc: &str) -> common::Result<Option<(String, String)>> {
+    use std::time::Instant;
+
+    let parse_start = Instant::now();
+    let value: serde_yaml::Value = serde_yaml::from_str(doc)?;
+    let artifact_str = serde_yaml::to_string(&value)?;
+    println!(
+        "process_artifact: YAML parse elapsed = {:?}",
+        parse_start.elapsed()
+    );
+
+    let (kind, name) = match parse_artifact_info(&value) {
+        Some(info) => info,
+        None => {
+            println!("Unknown or invalid artifact");
+            return Ok(None);
+        }
+    };
+
+    let key = format!("{}/{}", kind, name);
+
+    let etcd_start = Instant::now();
+    data::write_to_etcd(&key, &artifact_str).await?;
+    println!(
+        "process_artifact: etcd write elapsed for {} = {:?}",
+        key,
+        etcd_start.elapsed()
+    );
+
+    if kind == KIND_SCENARIO {
+        notify_scenario_state(&name, "idle").await;
+    }
+
+    Ok(Some((kind, artifact_str)))
+}
 
 /// Apply downloaded artifact to etcd
 ///
@@ -27,91 +131,28 @@ pub async fn apply(body: &str) -> common::Result<String> {
     use std::time::Instant;
     let total_start = Instant::now();
 
-    let docs: Vec<&str> = body.split("---").collect();
+    let docs: Vec<&str> = body.split(YAML_SEPARATOR).collect();
     let mut scenario_str = String::new();
     let mut package_str = String::new();
 
     for doc in docs {
-        let parse_start = Instant::now();
-        let value: serde_yaml::Value = serde_yaml::from_str(doc)?;
-        let artifact_str = serde_yaml::to_string(&value)?;
-        let parse_elapsed = parse_start.elapsed();
-        println!("apply: YAML parse elapsed = {:?}", parse_elapsed);
-
-        if let Some(kind) = value.clone().get("kind").and_then(|k| k.as_str()) {
-            let name: String = match kind {
-                "Scenario" => serde_yaml::from_value::<Scenario>(value)?.get_name(),
-                "Package" => serde_yaml::from_value::<Package>(value)?.get_name(),
-                "Volume" => serde_yaml::from_value::<Volume>(value)?.get_name(),
-                "Network" => serde_yaml::from_value::<Network>(value)?.get_name(),
-                "Node" => serde_yaml::from_value::<Node>(value)?.get_name(),
-                "Model" => serde_yaml::from_value::<Model>(value)?.get_name(),
-                _ => {
-                    println!("unknown artifact");
-                    continue;
-                }
-            };
-            let key = format!("{}/{}", kind, name);
-
-            let etcd_start = Instant::now();
-            data::write_to_etcd(&key, &artifact_str).await?;
-            let etcd_elapsed = etcd_start.elapsed();
-            println!("apply: etcd write elapsed for {} = {:?}", key, etcd_elapsed);
-
-            match kind {
-                "Scenario" => {
-                    scenario_str = artifact_str;
-
-                    // Set initial scenario state to idle via StateManager
-                    println!("🔄 SCENARIO STATE INITIALIZATION: ApiServer Setting Initial State");
-                    println!("   📋 Scenario: {}", name);
-                    println!("   🔄 Initial State: → idle");
-                    println!("   🔍 Reason: New scenario artifact received and stored in etcd");
-
-                    let timestamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos() as i64;
-
-                    let state_change = common::statemanager::StateChange {
-                        resource_type: common::statemanager::ResourceType::Scenario as i32,
-                        resource_name: name.clone(),
-                        current_state: "".to_string(), // No previous state for new scenario
-                        target_state: "idle".to_string(),
-                        transition_id: format!("apiserver-scenario-init-{}", timestamp),
-                        timestamp_ns: timestamp,
-                        source: "apiserver".to_string(),
-                    };
-
-                    println!("   📤 Sending StateChange to StateManager:");
-                    println!("      • Resource Type: SCENARIO");
-                    println!("      • Resource Name: {}", state_change.resource_name);
-                    println!("      • Target State: {}", state_change.target_state);
-                    println!("      • Transition ID: {}", state_change.transition_id);
-                    println!("      • Source: {}", state_change.source);
-
-                    let mut state_sender =
-                        crate::grpc::sender::statemanager::StateManagerSender::new();
-                    if let Err(e) = state_sender.send_state_change(state_change).await {
-                        println!("   ❌ Failed to send state change to StateManager: {:?}", e);
-                    } else {
-                        println!("   ✅ Successfully set scenario {} to idle state", name);
-                    }
-                }
-                "Package" => package_str = artifact_str,
+        if let Some((kind, artifact_str)) = process_artifact_document(doc).await? {
+            match kind.as_str() {
+                KIND_SCENARIO => scenario_str = artifact_str,
+                KIND_PACKAGE => package_str = artifact_str,
                 _ => continue,
-            };
+            }
         }
     }
 
-    let total_elapsed = total_start.elapsed();
-    println!("apply: total elapsed = {:?}", total_elapsed);
+    println!("apply: total elapsed = {:?}", total_start.elapsed());
 
     if scenario_str.is_empty() {
         Err("There is not any scenario in yaml string".into())
     } else if package_str.is_empty() {
         Err("There is not any package in yaml string".into())
     } else {
+        save_pod_yaml_from_package(&package_str).await?;
         Ok(scenario_str)
     }
 }
@@ -125,27 +166,73 @@ pub async fn apply(body: &str) -> common::Result<String> {
 /// ### Description
 /// Delete scenario yaml only, because other scenario can use a package with same name
 pub async fn withdraw(body: &str) -> common::Result<String> {
-    let docs: Vec<&str> = body.split("---").collect();
+    let docs: Vec<&str> = body.split(YAML_SEPARATOR).collect();
+
     for doc in docs {
         let value: serde_yaml::Value = serde_yaml::from_str(doc)?;
-        let artifact_str = serde_yaml::to_string(&value)?;
 
-        if let Some(kind) = value.get("kind").and_then(|k| k.as_str()) {
-            match kind {
-                "Scenario" => {
-                    let name = serde_yaml::from_value::<Scenario>(value)?.get_name();
-                    let key = format!("Scenario/{}", name);
-                    data::delete_at_etcd(&key).await?;
-                    return Ok(artifact_str);
-                }
-                _ => {
-                    println!("unused artifact");
-                }
+        if let Some((kind, name)) = parse_artifact_info(&value) {
+            if kind == KIND_SCENARIO {
+                let artifact_str = serde_yaml::to_string(&value)?;
+                let key = format!("{}/{}", KIND_SCENARIO, name);
+                data::delete_at_etcd(&key).await?;
+                return Ok(artifact_str);
             }
         }
     }
 
     Err("There is not any scenario in yaml string".into())
+}
+
+/// Load model with optional volume and network resources
+async fn load_model_with_resources(
+    model_info: &common::spec::artifact::package::ModelInfo,
+) -> common::Result<Model> {
+    let model_str = common::etcd::get(&format!("{}/{}", KIND_MODEL, model_info.get_name())).await?;
+    let mut model: Model = serde_yaml::from_str(&model_str)?;
+
+    // Load volume if specified
+    if let Some(volume_name) = model_info.get_resources().get_volume() {
+        let volume_str = common::etcd::get(&format!("{}/{}", KIND_VOLUME, volume_name)).await?;
+        let volume: Volume = serde_yaml::from_str(&volume_str)?;
+
+        if let Some(volume_spec) = volume.get_spec() {
+            model
+                .get_podspec()
+                .volumes
+                .clone_from(volume_spec.get_volume());
+        }
+    }
+
+    // Load network if specified
+    if let Some(network_name) = model_info.get_resources().get_network() {
+        let network_str = common::etcd::get(&format!("{}/{}", KIND_NETWORK, network_name)).await?;
+        let _network: Network = serde_yaml::from_str(&network_str)?;
+        // TODO: Apply network configuration
+    }
+
+    Ok(model)
+}
+
+/// Save Pod YAML for all models in a package
+async fn save_pod_yaml_from_package(package_str: &str) -> common::Result<()> {
+    let package: Package = serde_yaml::from_str(package_str)?;
+    let mut models = Vec::new();
+
+    for model_info in package.get_models() {
+        let model = load_model_with_resources(&model_info).await?;
+        models.push(model);
+    }
+
+    let pods: Vec<Pod> = models.into_iter().map(Pod::from).collect();
+
+    for pod in pods {
+        let pod_yaml = serde_yaml::to_string(&pod)?;
+        let key = format!("{}/{}", "Pod", pod.get_name());
+        data::write_to_etcd(&key, &pod_yaml).await?;
+    }
+
+    Ok(())
 }
 
 //UNIT TEST CASES
@@ -227,11 +314,38 @@ spec:
     /// Invalid YAML — empty string
     const INVALID_YAML_EMPTY: &str = "";
 
+    /// Valid Model YAML for helloworld-core (required by Package)
+    const VALID_MODEL_YAML: &str = r#"
+apiVersion: v1
+kind: Model
+metadata:
+  name: helloworld-core
+  annotations:
+    io.piccolo.annotations.package-type: helloworld-core
+    io.piccolo.annotations.package-name: helloworld
+    io.piccolo.annotations.package-network: default
+  labels:
+    app: helloworld-core
+spec:
+  hostNetwork: true
+  containers:
+    - name: helloworld
+      image: helloworld:latest
+  terminationGracePeriodSeconds: 0
+"#;
+
     // -- apply() tests --
 
     /// Test apply() with valid artifact YAML (Scenario + Package present)
     #[tokio::test]
     async fn test_apply_valid_artifact() {
+        // First, create the required Model that the Package references
+        let model_value: serde_yaml::Value = serde_yaml::from_str(VALID_MODEL_YAML).unwrap();
+        let model_str = serde_yaml::to_string(&model_value).unwrap();
+        data::write_to_etcd("Model/helloworld-core", &model_str)
+            .await
+            .unwrap();
+
         let result = apply(VALID_ARTIFACT_YAML).await;
 
         // Assert: should succeed because both Scenario + Package present and valid
@@ -244,6 +358,9 @@ spec:
         // Assert: scenario and package strings should not be empty
         let scenario = result.unwrap();
         assert!(!scenario.is_empty(), "Scenario YAML should not be empty");
+
+        // Cleanup: Remove the created Model
+        let _ = data::delete_at_etcd("Model/helloworld-core").await;
     }
 
     /// Test apply() with missing `action` field (invalid Scenario)

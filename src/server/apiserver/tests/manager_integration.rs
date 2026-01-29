@@ -409,7 +409,7 @@ spec:
 
 #[tokio::test]
 async fn test_initialize_runs_successfully() {
-    let _ = tokio::time::timeout(std::time::Duration::from_millis(500), initialize()).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), initialize()).await;
     assert!(true);
 }
 

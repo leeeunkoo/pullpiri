@@ -3,7 +3,7 @@
 
 //! Integration with monitoring server's etcd storage
 
-use crate::monitoring_types::{BoardInfo, NodeInfo, SocInfo};
+use crate::monitoring_types::{BoardInfo, NodeInfo, SocInfo, StressMetrics};
 use common::monitoringserver::ContainerInfo;
 use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
@@ -62,12 +62,12 @@ async fn get_all_info<T: DeserializeOwned>(resource_type: &str) -> Result<Vec<T>
 
     let mut items = Vec::new();
     for kv in kv_pairs {
-        match serde_json::from_str::<T>(&kv.value) {
+        match serde_json::from_str::<T>(&kv.1) {
             Ok(item) => items.push(item),
             Err(e) => {
                 warn!(
                     "Failed to deserialize {} from {}: {}",
-                    resource_type, kv.key, e
+                    resource_type, kv.0, e
                 );
             }
         }
@@ -98,6 +98,16 @@ pub async fn store_node_info(node_info: &NodeInfo) -> Result<()> {
 /// Get NodeInfo from etcd
 pub async fn get_node_info(node_name: &str) -> Result<NodeInfo> {
     get_info("nodes", node_name).await
+}
+
+/// Get Stressmetrics from etcd
+pub async fn get_stress_metrics(process_name: &str) -> Result<StressMetrics> {
+    get_info("stress", process_name).await
+}
+
+/// Get all stress metrics from etcd
+pub async fn get_all_stress_metrics() -> Result<Vec<StressMetrics>> {
+    get_all_info("stress").await
 }
 
 /// Get all nodes from etcd
@@ -199,7 +209,7 @@ async fn get_logs(resource_type: &str, resource_id: &str) -> Result<Vec<String>>
 
     let mut logs = Vec::new();
     for kv in kv_pairs {
-        logs.push(kv.value);
+        logs.push(kv.1);
     }
 
     debug!(

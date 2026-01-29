@@ -24,14 +24,10 @@ PASSED_TOTAL=0  # Counter for passed formatting checks
 PIDS=()        # (Unused here but declared in case of future parallel runs)
 
 # Declare paths to Cargo.toml manifests for different crates/components
-COMMON_MANIFEST="src/common/Cargo.toml"
-AGENT_MANIFEST="src/agent/Cargo.toml"
+MAJOR_MANIFEST="src/Cargo.toml"
+NODEAGENT_MANIFEST="src/agent/nodeagent/Cargo.toml"
+ROCKSDBSERVICE_MANIFEST="src/server/rocksdbservice/Cargo.toml"
 TOOLS_MANIFEST="src/tools/Cargo.toml"
-APISERVER_MANIFEST="src/server/apiserver/Cargo.toml"
-FILTERGATEWAY_MANIFEST="src/player/filtergateway/Cargo.toml"
-ACTIONCONTROLLER_MANIFEST="src/player/actioncontroller/Cargo.toml"
-SETTINGS_SERVICE_MANIFEST="src/server/settingsservice/Cargo.toml"
-MONITORING_SERVER_MANIFEST="src/server/monitoringserver/Cargo.toml"
 
 # Function to run 'cargo fmt --check' on a given manifest and record results
 run_fmt() {
@@ -61,50 +57,26 @@ run_fmt() {
 }
 
 # Run formatting checks for each crate manifest if the file exists
-if [[ -f "$COMMON_MANIFEST" ]]; then
-  run_fmt "$COMMON_MANIFEST" "common"
+if [[ -f "$MAJOR_MANIFEST" ]]; then
+  run_fmt "$MAJOR_MANIFEST" "major"
 else
-  echo "::warning ::$COMMON_MANIFEST not found, skipping..."
+  echo "::warning ::$MAJOR_MANIFEST not found, skipping..."
 fi
 
-if [[ -f "$APISERVER_MANIFEST" ]]; then
-  run_fmt "$APISERVER_MANIFEST" "apiserver"
+if [[ -f "$NODEAGENT_MANIFEST" ]]; then
+  run_fmt "$NODEAGENT_MANIFEST" "nodeagent"
 else
-  echo "::warning ::$APISERVER_MANIFEST not found, skipping..."
+  echo "::warning ::$NODEAGENT_MANIFEST not found, skipping..."
+fi
+
+if [[ -f "$ROCKSDBSERVICE_MANIFEST" ]]; then
+  run_fmt "$ROCKSDBSERVICE_MANIFEST" "rocksdbservice"
+else
+  echo "::warning ::$ROCKSDBSERVICE_MANIFEST not found, skipping..."
 fi
 
 if [[ -f "$TOOLS_MANIFEST" ]]; then
   run_fmt "$TOOLS_MANIFEST" "tools"
 else
   echo "::warning ::$TOOLS_MANIFEST not found, skipping..."
-fi
-
-if [[ -f "$AGENT_MANIFEST" ]]; then
-  run_fmt "$AGENT_MANIFEST" "agent"
-else
-  echo "::warning ::$AGENT_MANIFEST not found, skipping..."
-fi
-
-if [[ -f "$FILTERGATEWAY_MANIFEST" ]]; then
-  run_fmt "$FILTERGATEWAY_MANIFEST" "filtergateway"
-else
-  echo "::warning ::$FILTERGATEWAY_MANIFEST not found, skipping..."
-fi
-
-if [[ -f "$ACTIONCONTROLLER_MANIFEST" ]]; then
-  run_fmt "$ACTIONCONTROLLER_MANIFEST" "actioncontroller"
-else
-  echo "::warning ::$ACTIONCONTROLLER_MANIFEST not found, skipping..."
-fi
-
-if [[ -f "$MONITORING_SERVER_MANIFEST" ]]; then
-  run_fmt "$MONITORING_SERVER_MANIFEST" "monitoringserver"
-else
-  echo "::warning ::$MONITORING_SERVER_MANIFEST not found, skipping..."
-fi
-
-if [[ -f "$SETTINGS_SERVICE_MANIFEST" ]]; then
-  run_fmt "$SETTINGS_SERVICE_MANIFEST" "settingsservice"
-else
-  echo "::warning ::$SETTINGS_SERVICE_MANIFEST not found, skipping..."
 fi
