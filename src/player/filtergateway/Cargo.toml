@@ -35,7 +35,7 @@ thiserror = "2.0"
 # ========================================
 # [VSS Integration] Kuksa.val dependencies
 # ========================================
-http = { version = "1.2", optional = true }
+http = { version = "0.2", optional = true }
 
 [dependencies.kuksa-rust-sdk]
 git = "https://github.com/eclipse-kuksa/kuksa-rust-sdk"

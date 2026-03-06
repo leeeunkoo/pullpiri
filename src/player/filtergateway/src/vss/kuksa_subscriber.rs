@@ -27,6 +27,7 @@ use super::types::{VssError, VssTrigger, VssValue};
 /// vehicle signal updates.
 pub struct VssSubscriber {
     client: KuksaClientV2,
+    #[allow(dead_code)]
     databroker_uri: String,
     subscribed_paths: Arc<RwLock<Vec<String>>>,
 }
@@ -48,7 +49,10 @@ impl VssSubscriber {
     /// let subscriber = VssSubscriber::new("http://databroker:55556").await?;
     /// ```
     pub async fn new(databroker_uri: &str) -> Result<Self, VssError> {
-        tracing::info!("Creating VssSubscriber for Databroker at {}", databroker_uri);
+        tracing::info!(
+            "Creating VssSubscriber for Databroker at {}",
+            databroker_uri
+        );
 
         let uri = http::Uri::try_from(databroker_uri)
             .map_err(|e| VssError::InvalidUri(format!("{}", e)))?;
@@ -74,6 +78,7 @@ impl VssSubscriber {
     /// # Returns
     ///
     /// `Result<(), VssError>` - Success or error
+    #[allow(dead_code)]
     pub async fn subscribe(
         &mut self,
         vss_paths: Vec<String>,
@@ -162,13 +167,12 @@ impl VssSubscriber {
     /// # Returns
     ///
     /// `Option<VssValue>` - The current value or None if not available
+    #[allow(dead_code)]
     pub async fn get_value(&mut self, path: &str) -> Option<VssValue> {
         tracing::debug!("Getting VSS value for: {}", path);
 
         match self.client.get_values(vec![path.to_string()]).await {
-            Ok(response) => response
-                .first()
-                .and_then(|entry| Self::extract_value(entry)),
+            Ok(response) => response.first().and_then(Self::extract_value),
             Err(e) => {
                 tracing::warn!("Failed to get VSS value for {}: {}", path, e);
                 None
@@ -185,10 +189,10 @@ impl VssSubscriber {
     /// # Returns
     ///
     /// `Option<VssValue>` - Extracted value or None
-    fn extract_value(datapoint: &kuksa_rust_sdk::v2_proto::v1::Datapoint) -> Option<VssValue> {
+    fn extract_value(datapoint: &kuksa_rust_sdk::v2_proto::Datapoint) -> Option<VssValue> {
         datapoint.value.as_ref().and_then(|v| {
             v.typed_value.as_ref().map(|tv| {
-                use kuksa_rust_sdk::v2_proto::value::typed_value::TypedValue;
+                use kuksa_rust_sdk::v2_proto::value::TypedValue;
                 match tv {
                     TypedValue::Bool(b) => VssValue::Bool(*b),
                     TypedValue::Int32(i) => VssValue::Int32(*i),
@@ -209,9 +213,8 @@ mod tests {
 
     #[test]
     fn test_extract_value_bool() {
-        use kuksa_rust_sdk::v2_proto::v1::Datapoint;
-        use kuksa_rust_sdk::v2_proto::value::typed_value::TypedValue;
-        use kuksa_rust_sdk::v2_proto::value::Value;
+        use kuksa_rust_sdk::v2_proto::value::TypedValue;
+        use kuksa_rust_sdk::v2_proto::{Datapoint, Value};
 
         let datapoint = Datapoint {
             timestamp: None,
@@ -226,9 +229,8 @@ mod tests {
 
     #[test]
     fn test_extract_value_int32() {
-        use kuksa_rust_sdk::v2_proto::v1::Datapoint;
-        use kuksa_rust_sdk::v2_proto::value::typed_value::TypedValue;
-        use kuksa_rust_sdk::v2_proto::value::Value;
+        use kuksa_rust_sdk::v2_proto::value::TypedValue;
+        use kuksa_rust_sdk::v2_proto::{Datapoint, Value};
 
         let datapoint = Datapoint {
             timestamp: None,
@@ -243,9 +245,8 @@ mod tests {
 
     #[test]
     fn test_extract_value_string() {
-        use kuksa_rust_sdk::v2_proto::v1::Datapoint;
-        use kuksa_rust_sdk::v2_proto::value::typed_value::TypedValue;
-        use kuksa_rust_sdk::v2_proto::value::Value;
+        use kuksa_rust_sdk::v2_proto::value::TypedValue;
+        use kuksa_rust_sdk::v2_proto::{Datapoint, Value};
 
         let datapoint = Datapoint {
             timestamp: None,
@@ -260,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_extract_value_none() {
-        use kuksa_rust_sdk::v2_proto::v1::Datapoint;
+        use kuksa_rust_sdk::v2_proto::Datapoint;
 
         let datapoint = Datapoint {
             timestamp: None,

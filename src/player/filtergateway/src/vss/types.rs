@@ -13,6 +13,7 @@ use std::time::SystemTime;
 ///
 /// Represents a change notification for a specific VSS signal path.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct VssTrigger {
     /// VSS path (e.g., "Vehicle.Chassis.ParkingBrake.IsEngaged")
     pub path: String,
@@ -26,6 +27,7 @@ pub struct VssTrigger {
 ///
 /// Represents the various data types supported by VSS signals.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum VssValue {
     /// Boolean value
     Bool(bool),
@@ -49,6 +51,7 @@ impl VssValue {
     /// # Returns
     ///
     /// String representation of the value
+    #[allow(dead_code)]
     pub fn to_string_value(&self) -> String {
         match self {
             VssValue::Bool(v) => v.to_string(),
@@ -66,6 +69,7 @@ impl VssValue {
     /// # Returns
     ///
     /// `Some(bool)` if conversion is possible, `None` otherwise
+    #[allow(dead_code)]
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             VssValue::Bool(v) => Some(*v),
@@ -77,6 +81,7 @@ impl VssValue {
 
 /// VSS-related error types
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum VssError {
     /// Connection error to Kuksa.val Databroker
     #[error("Connection error: {0}")]
@@ -111,14 +116,8 @@ mod tests {
     fn test_vss_value_as_bool() {
         assert_eq!(VssValue::Bool(true).as_bool(), Some(true));
         assert_eq!(VssValue::Bool(false).as_bool(), Some(false));
-        assert_eq!(
-            VssValue::String("true".to_string()).as_bool(),
-            Some(true)
-        );
-        assert_eq!(
-            VssValue::String("false".to_string()).as_bool(),
-            Some(false)
-        );
+        assert_eq!(VssValue::String("true".to_string()).as_bool(), Some(true));
+        assert_eq!(VssValue::String("false".to_string()).as_bool(), Some(false));
         assert_eq!(VssValue::Int32(1).as_bool(), None);
     }
 

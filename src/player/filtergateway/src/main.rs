@@ -35,7 +35,7 @@ use common::logd::logger;
 // [VSS Integration] Conditional imports
 // ========================================
 #[cfg(feature = "vss")]
-use vss::{VssSubscriber, VssTrigger};
+use vss::VssSubscriber;
 
 #[cfg(not(feature = "tarpaulin_include"))]
 #[tokio::main]
@@ -76,12 +76,12 @@ async fn initialize_vss_integration() -> Option<VssSubscriber> {
         tracing::info!("VSS integration enabled: {}", databroker_uri);
 
         match VssSubscriber::new(&databroker_uri).await {
-            Ok(mut subscriber) => {
+            Ok(subscriber) => {
                 // For now, just log that VSS is ready
                 // In a real scenario, we would extract VSS paths from loaded scenarios
                 // and subscribe to them
                 tracing::info!("VssSubscriber created successfully");
-                
+
                 // Example of how to use it (commented out as we need scenario integration):
                 // let vss_paths = vec!["Vehicle.Speed".to_string()];
                 // let (vss_tx, mut vss_rx) = tokio::sync::mpsc::channel::<VssTrigger>(100);

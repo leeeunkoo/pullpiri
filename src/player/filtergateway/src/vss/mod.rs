@@ -36,4 +36,5 @@ mod types;
 #[cfg(feature = "vss")]
 pub use kuksa_subscriber::VssSubscriber;
 #[cfg(feature = "vss")]
+#[allow(unused_imports)]
 pub use types::{VssError, VssTrigger, VssValue};
