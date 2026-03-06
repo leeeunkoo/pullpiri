@@ -20,6 +20,12 @@ pub async fn initialize() {
         logd!(2, "Host node registered successfully");
     }
 
+    // ========================================
+    // [신규 추가] uProtocol Subscriber 시작
+    // ========================================
+    #[cfg(feature = "uprotocol")]
+    start_uprotocol_subscriber().await;
+
     tokio::join!(
         crate::route::launch_tcp_listener(),
         start_grpc_server(),
@@ -167,6 +173,91 @@ pub async fn withdraw_artifact(body: &str) -> common::Result<()> {
     crate::grpc::sender::filtergateway::send(req).await?;
 
     Ok(())
+}
+
+// ========================================
+// [신규 추가] uProtocol 시나리오 처리
+// ========================================
+
+/// uProtocol로 수신된 시나리오 처리
+///
+/// ### Parameters
+/// * `scenario` - Cloud에서 수신한 시나리오 정보
+/// ### Description
+/// Cloud에서 uProtocol을 통해 수신된 시나리오를 처리합니다.
+/// - DEPLOY/UPDATE: 기존 artifact 저장 로직 재사용
+/// - DELETE: 기존 withdraw 로직 재사용
+#[cfg(feature = "uprotocol")]
+pub async fn handle_uprotocol_scenario(
+    scenario: crate::uprotocol::ScenarioDownload,
+) -> common::Result<()> {
+    logd!(
+        2,
+        "Processing uProtocol scenario: {} (action: {})",
+        scenario.name,
+        scenario.action
+    );
+
+    match scenario.action.as_str() {
+        "DEPLOY" | "UPDATE" => {
+            // 기존 artifact 저장 및 filtergateway 전달 로직 재사용
+            apply_artifact(&scenario.yaml_content).await?;
+            logd!(
+                2,
+                "uProtocol scenario {} applied successfully",
+                scenario.name
+            );
+        }
+        "DELETE" => {
+            // 기존 withdraw 로직 재사용
+            withdraw_artifact(&scenario.yaml_content).await?;
+            logd!(
+                2,
+                "uProtocol scenario {} withdrawn successfully",
+                scenario.name
+            );
+        }
+        _ => {
+            logd!(4, "Unknown uProtocol action: {}", scenario.action);
+        }
+    }
+
+    Ok(())
+}
+
+/// uProtocol Subscriber 시작 (조건부)
+///
+/// ZENOH_CONFIG 환경변수가 설정된 경우에만 실행됩니다.
+#[cfg(feature = "uprotocol")]
+pub async fn start_uprotocol_subscriber() {
+    use crate::uprotocol::{start_subscriber, ScenarioDownload, UProtocolConfig};
+
+    if let Some(config) = UProtocolConfig::from_env() {
+        logd!(2, "uProtocol subscriber enabled: {}", config.topic_filter);
+
+        let (scenario_tx, mut scenario_rx) = tokio::sync::mpsc::channel::<ScenarioDownload>(100);
+
+        // Subscriber 시작
+        match start_subscriber(&config, scenario_tx).await {
+            Ok(_transport) => {
+                logd!(2, "uProtocol subscriber started successfully");
+
+                // 수신된 시나리오 처리 태스크
+                tokio::spawn(async move {
+                    while let Some(scenario) = scenario_rx.recv().await {
+                        if let Err(e) = handle_uprotocol_scenario(scenario).await {
+                            logd!(4, "Failed to handle uProtocol scenario: {}", e);
+                        }
+                    }
+                });
+            }
+            Err(e) => {
+                logd!(4, "Failed to start uProtocol subscriber: {}", e);
+            }
+        }
+    } else {
+        logd!(2, "uProtocol subscriber disabled (ZENOH_CONFIG not set)");
+    }
 }
 
 //UNIT Test Cases

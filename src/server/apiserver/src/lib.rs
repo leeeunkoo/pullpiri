@@ -8,3 +8,9 @@ pub mod grpc;
 pub mod manager;
 pub mod node;
 pub mod route;
+
+// ========================================
+// [신규 추가] uProtocol 수신 모듈
+// ========================================
+#[cfg(feature = "uprotocol")]
+pub mod uprotocol;

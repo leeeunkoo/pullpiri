@@ -20,6 +20,12 @@ mod manager;
 mod node;
 mod route;
 
+// ========================================
+// [신규 추가] uProtocol 수신 모듈
+// ========================================
+#[cfg(feature = "uprotocol")]
+mod uprotocol;
+
 use common::logd;
 use common::logd::logger;
 
