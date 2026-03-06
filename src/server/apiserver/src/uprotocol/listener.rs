@@ -124,4 +124,74 @@ mod tests {
         assert!(json_str.contains("test-id"));
         assert!(json_str.contains("DEPLOY"));
     }
+
+    /// Test ScenarioListener on_receive with valid JSON payload
+    #[tokio::test]
+    async fn test_scenario_listener_on_receive_valid() {
+        let (tx, mut rx) = mpsc::channel::<ScenarioDownload>(10);
+        let listener = ScenarioListener::new(tx);
+
+        // Create a valid JSON payload
+        let json =
+            r#"{"id":"test-123","name":"test-scenario","yaml_content":"test","action":"DEPLOY"}"#;
+        let payload = bytes::Bytes::from(json);
+
+        // Create a UMessage with payload
+        let msg = UMessage {
+            payload: Some(payload),
+            ..Default::default()
+        };
+
+        // Call on_receive
+        listener.on_receive(msg).await;
+
+        // Verify the scenario was forwarded through the channel
+        let received = rx.try_recv();
+        assert!(received.is_ok());
+        let scenario = received.unwrap();
+        assert_eq!(scenario.id, "test-123");
+        assert_eq!(scenario.name, "test-scenario");
+        assert_eq!(scenario.action, "DEPLOY");
+    }
+
+    /// Test ScenarioListener on_receive with empty payload
+    #[tokio::test]
+    async fn test_scenario_listener_on_receive_empty_payload() {
+        let (tx, mut rx) = mpsc::channel::<ScenarioDownload>(10);
+        let listener = ScenarioListener::new(tx);
+
+        // Create a UMessage with no payload
+        let msg = UMessage {
+            payload: None,
+            ..Default::default()
+        };
+
+        // Call on_receive - should not forward anything
+        listener.on_receive(msg).await;
+
+        // Verify nothing was forwarded
+        let received = rx.try_recv();
+        assert!(received.is_err());
+    }
+
+    /// Test ScenarioListener on_receive with invalid JSON payload
+    #[tokio::test]
+    async fn test_scenario_listener_on_receive_invalid_json() {
+        let (tx, mut rx) = mpsc::channel::<ScenarioDownload>(10);
+        let listener = ScenarioListener::new(tx);
+
+        // Create an invalid JSON payload
+        let payload = bytes::Bytes::from("not valid json");
+        let msg = UMessage {
+            payload: Some(payload),
+            ..Default::default()
+        };
+
+        // Call on_receive - should not forward anything
+        listener.on_receive(msg).await;
+
+        // Verify nothing was forwarded
+        let received = rx.try_recv();
+        assert!(received.is_err());
+    }
 }
