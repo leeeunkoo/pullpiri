@@ -37,7 +37,11 @@ impl StatusPublisher {
             .collect();
 
         // Extract resource_id from the last segment, or use default
-        let resource_id_str = parts.last().unwrap_or(&"D200");
+        let resource_id_str = if parts.is_empty() {
+            "D200"
+        } else {
+            parts.last().unwrap()
+        };
 
         // Parse resource_id (may be hex like "D200" which is 53760 in decimal, or "0x8001")
         let resource_id: u16 = if resource_id_str.starts_with("0x") {
@@ -48,7 +52,17 @@ impl StatusPublisher {
             // Assume 4-character hex without 0x prefix
             u16::from_str_radix(resource_id_str, 16)?
         } else {
-            resource_id_str.parse().unwrap_or(0x8001)
+            // Try decimal parse, fallback to default with warning
+            match resource_id_str.parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    info!(
+                        "Failed to parse resource_id '{}', using default 0x8001",
+                        resource_id_str
+                    );
+                    0x8001
+                }
+            }
         };
 
         // Create URI provider for settingsservice
@@ -72,6 +86,8 @@ impl StatusPublisher {
             resource_id
         );
 
+        // Note: VEHICLE_ID must be set before service startup
+        // It is read once during publisher initialization and does not change at runtime
         let vehicle_id = std::env::var("VEHICLE_ID").unwrap_or_else(|_| "vehicle-001".to_string());
 
         Ok(Self {

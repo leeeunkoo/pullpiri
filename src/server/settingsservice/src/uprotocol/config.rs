@@ -3,7 +3,7 @@
 
 use std::env;
 
-/// uProtocol 설정
+/// uProtocol configuration
 #[derive(Debug, Clone)]
 pub struct UProtocolConfig {
     pub zenoh_config_path: String,
@@ -12,7 +12,7 @@ pub struct UProtocolConfig {
 }
 
 impl UProtocolConfig {
-    /// 환경변수에서 설정 로드
+    /// Load configuration from environment variables
     pub fn from_env() -> Option<Self> {
         let zenoh_config_path = env::var("ZENOH_CONFIG").ok()?;
 
