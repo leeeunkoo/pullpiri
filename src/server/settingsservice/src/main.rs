@@ -29,6 +29,15 @@ mod settings_utils;
 use settings_core::CoreManager;
 use settings_utils::logging::init_logging;
 
+// ========================================
+// [신규 추가] uProtocol 모듈 (조건부)
+// ========================================
+#[cfg(feature = "uprotocol")]
+mod uprotocol;
+
+#[cfg(feature = "uprotocol")]
+use uprotocol::{StatusPublisher, UProtocolConfig, PullpiriStatus};
+
 /// Settings Service command line arguments
 #[derive(Parser, Debug)]
 #[command(name = "settingsservice")]
@@ -97,6 +106,54 @@ async fn run_server_mode(args: Args) -> Result<()> {
     info!("  GET    /api/v1/metrics");
     info!("  GET    /api/v1/history");
     info!("  GET    /api/v1/system/health");
+
+    // ========================================
+    // [신규 추가] uProtocol Publisher 백그라운드 태스크
+    // ========================================
+    #[cfg(feature = "uprotocol")]
+    {
+        if let Some(config) = UProtocolConfig::from_env() {
+            info!("uProtocol publishing enabled: {}", config.topic);
+            
+            let interval_secs = config.interval_secs;
+            
+            match StatusPublisher::new(&config).await {
+                Ok(publisher) => {
+                    let vehicle_id = std::env::var("VEHICLE_ID")
+                        .unwrap_or_else(|_| "vehicle-001".to_string());
+                    
+                    info!("Starting uProtocol background publisher task (interval: {}s)", interval_secs);
+                    
+                    // 백그라운드 태스크로 주기적 상태 전송
+                    tokio::spawn(async move {
+                        let mut interval = tokio::time::interval(
+                            std::time::Duration::from_secs(interval_secs)
+                        );
+                        
+                        loop {
+                            interval.tick().await;
+                            
+                            let status = PullpiriStatus {
+                                vehicle_id: vehicle_id.clone(),
+                                timestamp: chrono::Utc::now().timestamp_millis(),
+                            };
+                            
+                            if let Err(e) = publisher.publish(&status).await {
+                                tracing::warn!("uProtocol publish failed: {}", e);
+                            } else {
+                                tracing::debug!("uProtocol status published successfully");
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create uProtocol publisher: {}", e);
+                }
+            }
+        } else {
+            info!("uProtocol publishing disabled (ZENOH_CONFIG not set)");
+        }
+    }
 
     // Start all services including the API server
     // This will start the HTTP server on the specified port
