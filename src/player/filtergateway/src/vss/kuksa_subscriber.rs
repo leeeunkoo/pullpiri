@@ -48,6 +48,11 @@ impl VssSubscriber {
     /// ```rust,ignore
     /// let subscriber = VssSubscriber::new("http://databroker:55556").await?;
     /// ```
+    ///
+    /// # Note
+    ///
+    /// Integration tests for this method require a running Kuksa.val Databroker instance.
+    /// Unit tests verify the core type conversion logic via `extract_value` tests.
     pub async fn new(databroker_uri: &str) -> Result<Self, VssError> {
         tracing::info!(
             "Creating VssSubscriber for Databroker at {}",
@@ -78,6 +83,11 @@ impl VssSubscriber {
     /// # Returns
     ///
     /// `Result<(), VssError>` - Success or error
+    ///
+    /// # Note
+    ///
+    /// This method spawns a background task for receiving subscription updates.
+    /// Integration tests require a running Kuksa.val Databroker instance.
     #[allow(dead_code)]
     pub async fn subscribe(
         &mut self,
@@ -167,6 +177,10 @@ impl VssSubscriber {
     /// # Returns
     ///
     /// `Option<VssValue>` - The current value or None if not available
+    ///
+    /// # Note
+    ///
+    /// Integration tests require a running Kuksa.val Databroker instance.
     #[allow(dead_code)]
     pub async fn get_value(&mut self, path: &str) -> Option<VssValue> {
         tracing::debug!("Getting VSS value for: {}", path);

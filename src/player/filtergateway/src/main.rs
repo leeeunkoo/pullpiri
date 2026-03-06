@@ -69,6 +69,20 @@ fn main() {
 // ========================================
 // [VSS Integration] VSS initialization helper
 // ========================================
+/// Initialize VSS integration if enabled via environment variable
+///
+/// # Environment Variables
+///
+/// - `KUKSA_DATABROKER_URI`: URI of the Kuksa.val Databroker
+///
+/// # Returns
+///
+/// `Option<VssSubscriber>` - VSS subscriber if initialization succeeds, None otherwise
+///
+/// # Note
+///
+/// Integration tests for this function require a running Kuksa.val Databroker instance.
+/// The function is designed to fail gracefully if the Databroker is unavailable.
 #[cfg(feature = "vss")]
 async fn initialize_vss_integration() -> Option<VssSubscriber> {
     // Check if VSS is enabled via environment variable
