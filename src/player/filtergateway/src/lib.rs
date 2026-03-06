@@ -7,6 +7,12 @@ pub mod grpc;
 pub mod manager;
 pub mod vehicle;
 
+// ========================================
+// [VSS Integration] Conditional VSS module
+// ========================================
+#[cfg(feature = "vss")]
+pub mod vss;
+
 // Re-export what you need in tests:
 pub use common::spec::artifact::Scenario;
 pub use common::Result;
