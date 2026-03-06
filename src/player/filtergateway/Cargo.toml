@@ -30,10 +30,22 @@ tracing-subscriber = "0.3.20"
 tempfile = "3.20.0"
 mockall = "0.11"
 dust_dds_derive = "0.12.0"
+thiserror = "2.0"
+
+# ========================================
+# [VSS Integration] Kuksa.val dependencies
+# ========================================
+http = { version = "0.2", optional = true }
+
+[dependencies.kuksa-rust-sdk]
+git = "https://github.com/eclipse-kuksa/kuksa-rust-sdk"
+branch = "main"
+optional = true
 
 [features]
 dds_type_registry_exists =[]
 tarpaulin_include=[]
+vss = ["kuksa-rust-sdk", "http"]
 
 [build-dependencies]
 dust_dds = "0.12.0"

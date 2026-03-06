@@ -7,6 +7,12 @@ mod grpc;
 mod manager;
 mod vehicle;
 
+// ========================================
+// [VSS Integration] Conditional VSS module
+// ========================================
+#[cfg(feature = "vss")]
+mod vss;
+
 // Moved `launch_manager` and `initialize` function from `main.rs` to `lib.rs` to:
 // 1. Enable code reuse and better modularity.
 // 2. Facilitate integration and unit testing by making it publicly accessible.
@@ -25,6 +31,12 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 use common::logd;
 use common::logd::logger;
 
+// ========================================
+// [VSS Integration] Conditional imports
+// ========================================
+#[cfg(feature = "vss")]
+use vss::VssSubscriber;
+
 #[cfg(not(feature = "tarpaulin_include"))]
 #[tokio::main]
 async fn main() {
@@ -33,6 +45,13 @@ async fn main() {
 
     // Initialize tracing subscriber for logging
     let (tx_grpc, rx_grpc): (Sender<ScenarioParameter>, Receiver<ScenarioParameter>) = channel(100);
+
+    // ========================================
+    // [VSS Integration] Initialize VSS subscriber if enabled
+    // ========================================
+    #[cfg(feature = "vss")]
+    let _vss_subscriber = initialize_vss_integration().await;
+
     // Launch the manager thread
     let mgr = launch_manager(rx_grpc);
 
@@ -46,6 +65,57 @@ fn main() {
     // Dummy main for coverage builds
     println!("Tarpaulin coverage build: main function stub.");
 }
+
+// ========================================
+// [VSS Integration] VSS initialization helper
+// ========================================
+/// Initialize VSS integration if enabled via environment variable
+///
+/// # Environment Variables
+///
+/// - `KUKSA_DATABROKER_URI`: URI of the Kuksa.val Databroker
+///
+/// # Returns
+///
+/// `Option<VssSubscriber>` - VSS subscriber if initialization succeeds, None otherwise
+///
+/// # Note
+///
+/// Integration tests for this function require a running Kuksa.val Databroker instance.
+/// The function is designed to fail gracefully if the Databroker is unavailable.
+#[cfg(feature = "vss")]
+async fn initialize_vss_integration() -> Option<VssSubscriber> {
+    // Check if VSS is enabled via environment variable
+    if let Ok(databroker_uri) = std::env::var("KUKSA_DATABROKER_URI") {
+        tracing::info!("VSS integration enabled: {}", databroker_uri);
+
+        match VssSubscriber::new(&databroker_uri).await {
+            Ok(subscriber) => {
+                // For now, just log that VSS is ready
+                // In a real scenario, we would extract VSS paths from loaded scenarios
+                // and subscribe to them
+                tracing::info!("VssSubscriber created successfully");
+
+                // Example of how to use it (commented out as we need scenario integration):
+                // let vss_paths = vec!["Vehicle.Speed".to_string()];
+                // let (vss_tx, mut vss_rx) = tokio::sync::mpsc::channel::<VssTrigger>(100);
+                // if let Err(e) = subscriber.subscribe(vss_paths, vss_tx).await {
+                //     tracing::error!("Failed to subscribe to VSS: {}", e);
+                // }
+
+                Some(subscriber)
+            }
+            Err(e) => {
+                tracing::error!("Failed to create VSS subscriber: {}", e);
+                None
+            }
+        }
+    } else {
+        tracing::info!("VSS integration disabled (KUKSA_DATABROKER_URI not set)");
+        None
+    }
+}
+
 //Unit Test Cases
 #[cfg(test)]
 mod tests {
