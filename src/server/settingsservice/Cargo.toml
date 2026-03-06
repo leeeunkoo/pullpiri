@@ -61,6 +61,18 @@ config = { version = "0.15.19", default-features = false, features = ["json", "y
 # Common shared library
 common = { workspace = true }
 
+# ========================================
+# [신규 추가] uProtocol 연동 (optional)
+# ========================================
+# uProtocol dependencies - only enabled with "uprotocol" feature
+up-rust = { version = "0.9", optional = true }
+up-transport-zenoh = { version = "0.9", optional = true }
+zenoh-config = { version = "1.7", optional = true }
+
+[features]
+default = []
+uprotocol = ["up-rust", "up-transport-zenoh", "zenoh-config"]
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.0"
