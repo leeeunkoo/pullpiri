@@ -65,14 +65,13 @@ common = { workspace = true }
 # [신규 추가] uProtocol 연동 (optional)
 # ========================================
 # uProtocol dependencies - only enabled with "uprotocol" feature
-up-rust = { git = "https://github.com/eclipse-uprotocol/up-rust", branch = "main", optional = true }
-up-transport-zenoh = { git = "https://github.com/eclipse-uprotocol/up-transport-zenoh-rust", branch = "main", optional = true }
-zenoh = { version = "1.0", optional = true }
-prost = { version = "0.13", optional = true }
+up-rust = { version = "0.9", optional = true }
+up-transport-zenoh = { version = "0.9", optional = true }
+zenoh-config = { version = "1.7", optional = true }
 
 [features]
 default = []
-uprotocol = ["up-rust", "up-transport-zenoh", "zenoh", "prost"]
+uprotocol = ["up-rust", "up-transport-zenoh", "zenoh-config"]
 
 [dev-dependencies]
 tokio-test = "0.4"

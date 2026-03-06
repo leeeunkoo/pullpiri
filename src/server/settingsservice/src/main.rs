@@ -36,7 +36,7 @@ use settings_utils::logging::init_logging;
 mod uprotocol;
 
 #[cfg(feature = "uprotocol")]
-use uprotocol::{StatusPublisher, UProtocolConfig, PullpiriStatus};
+use uprotocol::{StatusPublisher, UProtocolConfig};
 
 /// Settings Service command line arguments
 #[derive(Parser, Debug)]
@@ -114,31 +114,25 @@ async fn run_server_mode(args: Args) -> Result<()> {
     {
         if let Some(config) = UProtocolConfig::from_env() {
             info!("uProtocol publishing enabled: {}", config.topic);
-            
+
             let interval_secs = config.interval_secs;
-            
+
             match StatusPublisher::new(&config).await {
                 Ok(publisher) => {
-                    let vehicle_id = std::env::var("VEHICLE_ID")
-                        .unwrap_or_else(|_| "vehicle-001".to_string());
-                    
-                    info!("Starting uProtocol background publisher task (interval: {}s)", interval_secs);
-                    
+                    info!(
+                        "Starting uProtocol background publisher task (interval: {}s)",
+                        interval_secs
+                    );
+
                     // 백그라운드 태스크로 주기적 상태 전송
                     tokio::spawn(async move {
-                        let mut interval = tokio::time::interval(
-                            std::time::Duration::from_secs(interval_secs)
-                        );
-                        
+                        let mut interval =
+                            tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+
                         loop {
                             interval.tick().await;
-                            
-                            let status = PullpiriStatus {
-                                vehicle_id: vehicle_id.clone(),
-                                timestamp: chrono::Utc::now().timestamp_millis(),
-                            };
-                            
-                            if let Err(e) = publisher.publish(&status).await {
+
+                            if let Err(e) = publisher.publish_status().await {
                                 tracing::warn!("uProtocol publish failed: {}", e);
                             } else {
                                 tracing::debug!("uProtocol status published successfully");

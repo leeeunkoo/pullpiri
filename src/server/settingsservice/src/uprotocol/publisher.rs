@@ -2,78 +2,104 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! uProtocol Publisher 구현
-//! 
-//! 참조: fms-forwarder/src/main.rs
+//!
+//! Zenoh transport를 통한 uProtocol 메시지 발행
 
-use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{debug, info, error};
+use tracing::{debug, info};
 
-use up_rust::{
-    communication::{CallOptions, Publisher, SimplePublisher, UPayload},
-    StaticUriProvider, UTransport, UUri,
-};
-use up_transport_zenoh::UPTransportZenoh;
+use up_rust::{LocalUriProvider, StaticUriProvider, UMessageBuilder, UPayloadFormat, UTransport};
+use up_transport_zenoh::{zenoh_config, UPTransportZenoh};
 
 use super::config::UProtocolConfig;
 
-/// PULLPIRI 상태 메시지 (간단한 구조)
-#[derive(Clone, serde::Serialize, prost::Message)]
-pub struct PullpiriStatus {
-    #[prost(string, tag = "1")]
-    pub vehicle_id: String,
-    #[prost(int64, tag = "2")]
-    pub timestamp: i64,
-    // 추가 필드는 기존 settingsservice의 데이터 구조에 맞게 확장
-}
-
 /// uProtocol Status Publisher
 pub struct StatusPublisher {
-    publisher: Arc<SimplePublisher<Arc<dyn UTransport>>>,
+    transport: Arc<UPTransportZenoh>,
+    uri_provider: Arc<StaticUriProvider>,
     resource_id: u16,
-    topic: String,
-    _transport: Arc<dyn UTransport>,
+    vehicle_id: String,
 }
 
 impl StatusPublisher {
     pub async fn new(config: &UProtocolConfig) -> Result<Self, Box<dyn std::error::Error>> {
-        info!("Creating uProtocol StatusPublisher for topic: {}", config.topic);
-        
-        let uri = UUri::from_str(&config.topic)?;
-        let uri_provider = Arc::new(StaticUriProvider::try_from(&uri)?);
-        
-        let zenoh_config = zenoh::Config::from_file(&config.zenoh_config_path)?;
-        
-        let transport: Arc<dyn UTransport> = Arc::new(
-            UPTransportZenoh::new(zenoh_config, uri_provider.get_source_uri()).await?
+        info!(
+            "Creating uProtocol StatusPublisher for topic: {}",
+            config.topic
         );
 
-        let resource_id = u16::try_from(uri.resource_id)?;
-        let publisher = Arc::new(SimplePublisher::new(transport.clone(), uri_provider));
+        // Parse the topic URI to extract resource_id
+        // Expected format: up://pullpiri-settings/D200/1/D200 or simplified version
+        let parts: Vec<&str> = config
+            .topic
+            .trim_start_matches("up://")
+            .split('/')
+            .collect();
 
-        info!("uProtocol StatusPublisher created successfully");
-        
-        Ok(Self { 
-            publisher, 
+        // Extract resource_id from the last segment, or use default
+        let resource_id_str = parts.last().unwrap_or(&"D200");
+
+        // Parse resource_id (may be hex like "D200" which is 53760 in decimal, or "0x8001")
+        let resource_id: u16 = if resource_id_str.starts_with("0x") {
+            u16::from_str_radix(&resource_id_str[2..], 16)?
+        } else if resource_id_str.chars().all(|c| c.is_ascii_hexdigit())
+            && resource_id_str.len() == 4
+        {
+            // Assume 4-character hex without 0x prefix
+            u16::from_str_radix(resource_id_str, 16)?
+        } else {
+            resource_id_str.parse().unwrap_or(0x8001)
+        };
+
+        // Create URI provider for settingsservice
+        let uri_provider = Arc::new(StaticUriProvider::new("pullpiri-settings", 0xD200, 1));
+
+        // Get authority from config or use default
+        let authority = parts.first().unwrap_or(&"pullpiri-settings").to_string();
+
+        // Load Zenoh configuration from file
+        let zenoh_cfg = zenoh_config::Config::from_file(&config.zenoh_config_path)
+            .map_err(|e| format!("Failed to load Zenoh config: {}", e))?;
+
+        // Build the transport using the builder pattern
+        let transport = UPTransportZenoh::builder(authority)?
+            .with_config(zenoh_cfg)
+            .build()
+            .await?;
+
+        info!(
+            "uProtocol StatusPublisher created successfully (resource_id: 0x{:04X})",
+            resource_id
+        );
+
+        let vehicle_id = std::env::var("VEHICLE_ID").unwrap_or_else(|_| "vehicle-001".to_string());
+
+        Ok(Self {
+            transport: Arc::new(transport),
+            uri_provider,
             resource_id,
-            topic: config.topic.clone(),
-            _transport: transport,
+            vehicle_id,
         })
     }
 
-    pub async fn publish(&self, status: &PullpiriStatus) -> Result<(), Box<dyn std::error::Error>> {
-        debug!("Publishing status for vehicle: {}", status.vehicle_id);
-        
-        let payload = UPayload::try_from_protobuf(status.clone())?;
-        
-        self.publisher
-            .publish(
-                self.resource_id,
-                CallOptions::for_publish(None, None, None),
-                Some(payload),
-            )
-            .await?;
-            
+    pub async fn publish_status(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let data = format!(
+            r#"{{"vehicle_id":"{}","timestamp":{}}}"#,
+            self.vehicle_id, timestamp
+        );
+
+        debug!("Publishing status for vehicle: {}", self.vehicle_id);
+
+        // Get the topic URI for this resource
+        let topic_uri = self.uri_provider.get_resource_uri(self.resource_id);
+
+        // Build and send the message
+        let umessage = UMessageBuilder::publish(topic_uri)
+            .build_with_payload(data, UPayloadFormat::UPAYLOAD_FORMAT_JSON)?;
+
+        self.transport.send(umessage).await?;
+
         Ok(())
     }
 }

@@ -15,15 +15,15 @@ impl UProtocolConfig {
     /// 환경변수에서 설정 로드
     pub fn from_env() -> Option<Self> {
         let zenoh_config_path = env::var("ZENOH_CONFIG").ok()?;
-        
+
         let topic = env::var("UPROTOCOL_TOPIC")
             .unwrap_or_else(|_| "up://pullpiri-settings/D200/1/D200".to_string());
-        
+
         let interval_secs = env::var("STATUS_INTERVAL_SECS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(30);
-        
+
         Some(Self {
             zenoh_config_path,
             topic,

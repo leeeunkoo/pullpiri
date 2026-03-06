@@ -7,11 +7,11 @@
 //! 이 모듈은 `uprotocol` feature가 활성화되어야 사용 가능합니다.
 
 #[cfg(feature = "uprotocol")]
-mod publisher;
-#[cfg(feature = "uprotocol")]
 mod config;
+#[cfg(feature = "uprotocol")]
+mod publisher;
 
 #[cfg(feature = "uprotocol")]
-pub use publisher::{StatusPublisher, PullpiriStatus};
-#[cfg(feature = "uprotocol")]
 pub use config::UProtocolConfig;
+#[cfg(feature = "uprotocol")]
+pub use publisher::StatusPublisher;
