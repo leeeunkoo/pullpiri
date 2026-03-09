@@ -55,9 +55,9 @@ fi
 # Make directory and binary
 AGENT_BINARY_PATH="/opt/piccolo/nodeagent"
 sudo mkdir -p /opt/piccolo
-#if [ ! -f "$AGENT_BINARY_PATH" ]; then
-sudo cp "${SCRIPT_DIR}/../../src/agent/nodeagent/target/x86_64-unknown-linux-musl/release/nodeagent" /opt/piccolo/nodeagent
-#fi
+if [ ! -f "$AGENT_BINARY_PATH" ]; then
+	sudo cp "${SCRIPT_DIR}/../../src/agent/nodeagent/target/x86_64-unknown-linux-musl/release/nodeagent" /opt/piccolo/nodeagent
+fi
 sudo chmod +x /opt/piccolo/nodeagent
 echo "Binary installed to /opt/piccolo/nodeagent"
 

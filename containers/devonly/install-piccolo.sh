@@ -37,6 +37,21 @@ dds:
   domain_id: 100
 EOF
 
+cat > /etc/piccolo/zenoh-config.json5 << 'EOF'
+{
+  mode: "client",
+  connect: {
+    endpoints: ["tcp/localhost:7447"]
+  },
+  scouting: {
+    multicast: {
+      enabled: false
+    }
+  }
+}
+EOF
+cat /tmp/zenoh-config.json5
+
 "${SCRIPT_DIR}/scripts/piccolo-server.sh" ${MASTER_IP}
 "${SCRIPT_DIR}/scripts/piccolo-player.sh" ${MASTER_IP}
 

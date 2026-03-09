@@ -37,6 +37,7 @@ dds:
   domain_id: 100
 EOF
 
+
 "${SCRIPT_DIR}/scripts/piccolo-server.sh" ${MASTER_IP}
 "${SCRIPT_DIR}/scripts/piccolo-player.sh" ${MASTER_IP}
 

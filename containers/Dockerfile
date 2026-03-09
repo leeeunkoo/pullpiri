@@ -23,8 +23,15 @@ RUN apt update -y && \
     apt install -y libdbus-1-dev pkg-config protobuf-compiler libssl-dev \
     clang libclang-dev llvm-dev build-essential cmake
 
-# Build binaries
-RUN cargo build --release
+# Build binaries with features
+# - settingsservice: uprotocol
+# - apiserver: uprotocol  
+# - filtergateway: vss
+# - others: default
+RUN cargo build --release --package settingsservice --features uprotocol && \
+    cargo build --release --package apiserver --features uprotocol && \
+    cargo build --release --package filtergateway --features vss && \
+    cargo build --release --workspace --exclude settingsservice --exclude apiserver --exclude filtergateway
 
 # Prepare glibc shared libraries
 WORKDIR /dummy

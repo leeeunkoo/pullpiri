@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 #BODY=$(< ./resources/helloworld.yaml)
-BODY=$(< ./resources/helloworld_no_condition.yaml)
+BODY=$(< ./resources/vss_scenario.yaml)
 
 #URL="10.0.0.30:8080/api/v1/yaml"
 

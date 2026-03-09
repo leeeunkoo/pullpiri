@@ -17,15 +17,14 @@ echo "Running player with image: ${CONTAINER_IMAGE}"
 
 # Create a pod with host networking
 podman pod create \
-  --name piccolo-player \
-  --network host \
-  --pid host
-
+  --name piccolo-player 
 # Run filtergateway container
 podman run -d \
   --pod piccolo-player \
+  --network host \
   --name piccolo-filtergateway \
   -e ROCKSDB_SERVICE_URL="http://${MASTER_IP}:47007" \
+  -e KUKSA_DATABROKER_URI="http://localhost:55555" \
   -v /etc/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
   -v /run/piccololog/:/run/piccololog/ \
   ${CONTAINER_IMAGE} \
@@ -34,6 +33,7 @@ podman run -d \
 # Run actioncontroller container
 podman run -d \
   --pod piccolo-player \
+  --network host \
   --name piccolo-actioncontroller \
   -e ROCKSDB_SERVICE_URL="http://${MASTER_IP}:47007" \
   -v /etc/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
@@ -44,6 +44,7 @@ podman run -d \
 # Run statemanager container
 podman run -d \
   --pod piccolo-player \
+  --network host \
   --name piccolo-statemanager \
   -e ROCKSDB_SERVICE_URL="http://${MASTER_IP}:47007" \
   -v /etc/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \

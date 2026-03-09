@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v1
+kind: Scenario
+metadata:
+  name: vss-speed-test
+spec:
+  condition:
+   express: gt
+   value: "50"
+   operands:
+     type: VSS
+     name: Vehicle.Speed
+     value: Vehicle.Speed
+  action: update
+  target: vss-speed-alert
+---
+apiVersion: v1
+kind: Package
+metadata:
+  label: null
+  name: vss-speed-alert
+spec:
+  pattern:
+    - type: plain
+  models:
+    - name: vss-speed-alert
+      node: local
+      resources:
+        volume:
+        network:
+---
+apiVersion: v1
+kind: Model
+metadata:
+  name: vss-speed-alert
+  annotations:
+    io.piccolo.annotations.package-type: vss-speed-alert
+    io.piccolo.annotations.package-name: vss-speed-alert
+    io.piccolo.annotations.package-network: default
+  labels:
+    app: vss-speed-alert
+spec:
+  hostNetwork: true
+  containers:
+    - name: vss-speed-alert
+      image: quay.io/podman/hello:latest
+  terminationGracePeriodSeconds: 0
+  restartPolicy: Always

@@ -17,13 +17,12 @@ echo "Running server with image: ${CONTAINER_IMAGE}"
 
 # Create a pod with host networking
 podman pod create \
-  --name piccolo-server \
-  --network host \
-  --pid host
+  --name piccolo-server 
 
 # Run rocksdbservice container
 podman run -d \
   --pod piccolo-server \
+  --network host \
   --name piccolo-rocksdbservice \
   --user 0:0 \
   -e RUST_LOG="info" \
@@ -34,9 +33,14 @@ podman run -d \
 # Run apiserver container
 podman run -d \
   --pod piccolo-server \
+  --network host \
   --name piccolo-apiserver \
   -e ROCKSDB_SERVICE_URL="http://${MASTER_IP}:47007" \
+  -e ZENOH_CONFIG="/etc/piccolo/zenoh-config.json5" \
+  -e UPROTOCOL_TOPIC="up://pullpiri-api/D200/2/D200" \
+  -e VEHICLE_ID="pullpiri-vehicle-001" \
   -v /etc/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
+  -v /etc/piccolo/zenoh-config.json5:/etc/piccolo/zenoh-config.json5:Z \
   -v /run/piccololog/:/run/piccololog/ \
   ${CONTAINER_IMAGE} \
   /piccolo/apiserver
@@ -44,6 +48,7 @@ podman run -d \
 # Run policymanager container
 podman run -d \
   --pod piccolo-server \
+  --network host \
   --name piccolo-policymanager \
   -e ROCKSDB_SERVICE_URL="http://${MASTER_IP}:47007" \
   -v /run/piccololog/:/run/piccololog/ \
@@ -53,6 +58,7 @@ podman run -d \
 # Run monitoringserver container
 podman run -d \
   --pod piccolo-server \
+  --network host \
   --name piccolo-monitoringserver \
   -e ROCKSDB_SERVICE_URL="http://${MASTER_IP}:47007" \
   -v /etc/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
@@ -63,6 +69,7 @@ podman run -d \
 # Run logservice container
 podman run -d \
   --pod piccolo-server \
+  --network host \
   --name piccolo-logservice \
   -e ROCKSDB_SERVICE_URL="http://${MASTER_IP}:47007" \
   -v /etc/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
@@ -73,9 +80,15 @@ podman run -d \
 # Run settingsservice container
 podman run -d \
   --pod piccolo-server \
+  --network host \
   --name piccolo-settingsservice \
   -e ROCKSDB_SERVICE_URL="http://${MASTER_IP}:47007" \
+  -e ZENOH_CONFIG="/etc/piccolo/zenoh-config.json5" \
+  -e UPROTOCOL_TOPIC="up://pullpiri-settings/D200/1/D200" \
+  -e VEHICLE_ID="pullpiri-vehicle-001" \
+  -e STATUS_INTERVAL_SECS="5" \
   -v /etc/piccolo/settings.yaml:/etc/piccolo/settings.yaml:Z \
+  -v /etc/piccolo/zenoh-config.json5:/etc/piccolo/zenoh-config.json5:Z \
   -v /run/piccololog/:/run/piccololog/ \
   ${CONTAINER_IMAGE} \
-  /piccolo/settingsservice --bind-address=${MASTER_IP} --bind-port=8080 --log-level=debug
+  /piccolo/settingsservice --bind-address=${MASTER_IP} --bind-port=8888 --log-level=debug
