@@ -36,6 +36,9 @@ pub struct FilterGatewayManager {
     pub rx_grpc: Arc<Mutex<mpsc::Receiver<ScenarioParameter>>>,
     /// Receiver for DDS data
     pub rx_dds: Arc<Mutex<mpsc::Receiver<DdsData>>>,
+    /// Receiver for VSS data
+    #[cfg(feature = "vss")]
+    pub rx_vss: Arc<Mutex<mpsc::Receiver<crate::vehicle::vss::VssData>>>,
     /// Active filters for scenarios
     pub filters: Arc<Mutex<Vec<Filter>>>,
     /// gRPC sender for action controller
@@ -64,9 +67,27 @@ impl FilterGatewayManager {
             // Continue (already using default values in VehicleManager::init())
         }
 
+        // Initialize VSS if feature is enabled and KUKSA_DATABROKER_URI is set
+        #[cfg(feature = "vss")]
+        let (tx_vss, rx_vss) = mpsc::channel::<crate::vehicle::vss::VssData>(10);
+
+        #[cfg(feature = "vss")]
+        if let Ok(databroker_uri) = std::env::var("KUKSA_DATABROKER_URI") {
+            logd!(2, "KUKSA_DATABROKER_URI found: {}", databroker_uri);
+            if let Err(e) = vehicle_manager.init_vss(databroker_uri, tx_vss.clone()).await {
+                logd!(4, "Warning: Failed to initialize VSS manager: {:?}. VSS features disabled.", e);
+            } else {
+                logd!(2, "VSS manager initialized successfully");
+            }
+        } else {
+            logd!(3, "KUKSA_DATABROKER_URI not set, VSS features disabled");
+        }
+
         Self {
             rx_grpc: Arc::new(Mutex::new(rx_grpc)),
             rx_dds: Arc::new(Mutex::new(rx_dds)),
+            #[cfg(feature = "vss")]
+            rx_vss: Arc::new(Mutex::new(rx_vss)),
             filters: Arc::new(Mutex::new(Vec::new())),
             sender: Arc::new(Mutex::new(FilterGatewaySender::new())),
             vehicle_manager: Arc::new(Mutex::new(vehicle_manager)),
@@ -169,6 +190,70 @@ impl FilterGatewayManager {
         Ok(())
     }
 
+    /// Function to process VSS data
+    ///
+    /// This function runs as a separate task to continuously receive and process VSS data.
+    /// Follows the same pattern as process_dds_data().
+    ///
+    /// # Returns
+    ///
+    /// * `Result<()>` - Success or error result
+    #[cfg(feature = "vss")]
+    async fn process_vss_data(&self) -> Result<()> {
+        // Create clone of shared receiver
+        let rx_vss = Arc::clone(&self.rx_vss);
+
+        // Receive loop
+        loop {
+            let mut receiver = rx_vss.lock().await;
+
+            // Receive VSS data
+            match receiver.recv().await {
+                Some(vss_data) => {
+                    // Only print if signal or value is not empty
+                    if !vss_data.name.is_empty() && !vss_data.value.is_empty() {
+                        logd!(
+                            3,
+                            "Received VSS data: signal={}, value={}",
+                            vss_data.name,
+                            vss_data.value
+                        );
+                    }
+
+                    // Convert VssData to DdsData for filter compatibility
+                    let dds_data = DdsData {
+                        name: vss_data.name.clone(),
+                        value: vss_data.value.clone(),
+                        fields: vss_data.fields.clone(),
+                    };
+
+                    // Forward data to all active filters
+                    let mut filters = self.filters.lock().await;
+                    for filter in filters.iter_mut() {
+                        if filter.is_active() {
+                            // Pass VSS data (as DdsData) to filter
+                            if let Err(e) = filter.process_data(&dds_data).await {
+                                logd!(
+                                    5,
+                                    "Error processing VSS data in filter {}: {:?}",
+                                    filter.scenario_name,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+                None => {
+                    // Channel closed
+                    logd!(5, "VSS data channel closed, stopping processor");
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Function to process gRPC requests
     ///
     /// This function processes scenario requests coming through gRPC.
@@ -199,14 +284,26 @@ impl FilterGatewayManager {
                                 
                                 logd!(1, "   Condition - Type: {}, Signal: {}", operand_type, operand_value);
                                 
+                                #[cfg(feature = "vss")]
                                 if operand_type.to_uppercase() == "VSS" {
-                                    logd!(1, "   ✅ VSS scenario detected - VSS path: {}", operand_value);
-                                    // TODO: Add VSS subscription logic here
-                                    // For now, just log and skip DDS subscription
+                                    logd!(1, "   ✅ VSS scenario detected - subscribing to: {}", operand_value);
+                                    
+                                    // Subscribe to VSS signal
+                                    let mut vehicle_manager = self.vehicle_manager.lock().await;
+                                    if let Err(e) = vehicle_manager.subscribe_vss_signal(operand_value.clone()).await {
+                                        logd!(5, "Error subscribing to VSS signal {}: {:?}", operand_value, e);
+                                    } else {
+                                        logd!(2, "Successfully subscribed to VSS signal: {}", operand_value);
+                                    }
+                                    
+                                    // Launch scenario filter
                                     self.launch_scenario_filter(param.scenario).await?;
                                     continue;
-                                } else {
-                                    logd!(1, "   ℹ️  DDS scenario - proceeding with DDS subscription", );
+                                }
+                                
+                                // DDS scenario handling
+                                if operand_type.to_uppercase() == "DDS" || operand_type.is_empty() {
+                                    logd!(1, "   ℹ️  DDS scenario - proceeding with DDS subscription");
                                 }
                             }
                             
@@ -234,14 +331,42 @@ impl FilterGatewayManager {
                         }
                         1 => {
                             // Withdraw
-                            // Unsubscribe from vehicle data
-                            let mut vehicle_manager = self.vehicle_manager.lock().await;
-                            if let Err(e) = vehicle_manager
-                                .unsubscribe_topic(param.scenario.get_name().clone())
-                                .await
-                            {
-                                logd!(5, "Error unsubscribing from vehicle data: {:?}", e);
+                            logd!(1, "📤 Scenario withdrawal via uProtocol: {}", param.scenario.get_name());
+                            
+                            // Check if scenario uses VSS or DDS
+                            if let Some(condition) = param.scenario.get_conditions() {
+                                let operand_type = condition.get_operand_type();
+                                let operand_value = condition.get_operand_value();
+                                
+                                #[cfg(feature = "vss")]
+                                if operand_type.to_uppercase() == "VSS" {
+                                    logd!(1, "   Unsubscribing from VSS signal: {}", operand_value);
+                                    let mut vehicle_manager = self.vehicle_manager.lock().await;
+                                    if let Err(e) = vehicle_manager.unsubscribe_vss_signal(operand_value.clone()).await {
+                                        logd!(5, "Error unsubscribing from VSS signal {}: {:?}", operand_value, e);
+                                    }
+                                } else {
+                                    // DDS unsubscription
+                                    logd!(1, "   Unsubscribing from DDS topic: {}", param.scenario.get_name());
+                                    let mut vehicle_manager = self.vehicle_manager.lock().await;
+                                    if let Err(e) = vehicle_manager
+                                        .unsubscribe_topic(param.scenario.get_name().clone())
+                                        .await
+                                    {
+                                        logd!(5, "Error unsubscribing from vehicle data: {:?}", e);
+                                    }
+                                }
+                            } else {
+                                // No condition - unsubscribe from DDS
+                                let mut vehicle_manager = self.vehicle_manager.lock().await;
+                                if let Err(e) = vehicle_manager
+                                    .unsubscribe_topic(param.scenario.get_name().clone())
+                                    .await
+                                {
+                                    logd!(5, "Error unsubscribing from vehicle data: {:?}", e);
+                                }
                             }
+                            
                             self.remove_scenario_filter(param.scenario.get_name().clone())
                                 .await?;
                         }
@@ -277,6 +402,16 @@ impl FilterGatewayManager {
             }
         });
 
+        // VSS 데이터 처리 태스크 시작 (vss feature 활성화 시)
+        #[cfg(feature = "vss")]
+        let gateway_vss_manager = Arc::clone(&arc_self);
+        #[cfg(feature = "vss")]
+        let vss_processor = tokio::spawn(async move {
+            if let Err(e) = gateway_vss_manager.process_vss_data().await {
+                logd!(5, "Error in VSS processor: {:?}", e);
+            }
+        });
+
         // gRPC 요청 처리를 위해 process_grpc_requests도 &self로 수정해야 함
         let gateway_grpc_manager = Arc::clone(&arc_self);
         let grpc_processor = tokio::spawn(async move {
@@ -286,6 +421,10 @@ impl FilterGatewayManager {
         });
 
         // 태스크 완료 대기
+        #[cfg(feature = "vss")]
+        let _ = tokio::try_join!(dds_processor, vss_processor, grpc_processor);
+        
+        #[cfg(not(feature = "vss"))]
         let _ = tokio::try_join!(dds_processor, grpc_processor);
 
         logd!(5, "FilterGatewayManager stopped");

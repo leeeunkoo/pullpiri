@@ -4,18 +4,27 @@
 */
 pub mod dds;
 
+#[cfg(feature = "vss")]
+pub mod vss;
+
 use common::logd;
 use common::Result;
 use dds::DdsData;
 use tokio::sync::mpsc::Sender;
 
+#[cfg(feature = "vss")]
+use vss::VssData;
+
 /// Vehicle data management module
 ///
-/// Manages vehicle data through DDS communication
+/// Manages vehicle data through DDS and VSS communication
 #[allow(dead_code)]
 pub struct VehicleManager {
     /// DDS Manager instance
     dds_manager: dds::DdsManager,
+    /// VSS Manager instance (optional, enabled with vss feature)
+    #[cfg(feature = "vss")]
+    vss_manager: Option<vss::VssManager>,
 }
 #[allow(dead_code)]
 impl VehicleManager {
@@ -27,6 +36,8 @@ impl VehicleManager {
     pub fn new(tx: Sender<DdsData>) -> Self {
         Self {
             dds_manager: dds::DdsManager::new(tx),
+            #[cfg(feature = "vss")]
+            vss_manager: None,
         }
     }
 
@@ -114,6 +125,82 @@ impl VehicleManager {
     /// * `domain_id` - Domain ID to use for DDS communication
     pub fn set_domain_id(&mut self, domain_id: i32) {
         self.dds_manager.set_domain_id(domain_id);
+    }
+
+    // ========================================
+    // VSS-specific methods
+    // ========================================
+
+    /// Initialize VSS manager
+    ///
+    /// # Arguments
+    ///
+    /// * `databroker_uri` - Kuksa Databroker URI
+    /// * `tx_vss` - Channel sender for VssData
+    ///
+    /// # Returns
+    ///
+    /// * `Result<()>` - Success or error result
+    #[cfg(feature = "vss")]
+    pub async fn init_vss(&mut self, databroker_uri: String, tx_vss: Sender<VssData>) -> Result<()> {
+        logd!(2, "Initializing VSS manager with databroker: {}", databroker_uri);
+
+        let mut vss_manager = vss::VssManager::new(tx_vss, databroker_uri);
+        vss_manager.init().await?;
+        self.vss_manager = Some(vss_manager);
+
+        logd!(2, "VSS manager initialized successfully");
+        Ok(())
+    }
+
+    /// Subscribe to a VSS signal
+    ///
+    /// # Arguments
+    ///
+    /// * `vss_path` - VSS signal path (e.g., "Vehicle.Speed")
+    ///
+    /// # Returns
+    ///
+    /// * `Result<()>` - Success or error result
+    #[cfg(feature = "vss")]
+    pub async fn subscribe_vss_signal(&mut self, vss_path: String) -> Result<()> {
+        if let Some(ref mut vss_manager) = self.vss_manager {
+            vss_manager.create_vss_subscription(vss_path).await
+        } else {
+            Err("VSS Manager not initialized".into())
+        }
+    }
+
+    /// Unsubscribe from a VSS signal
+    ///
+    /// # Arguments
+    ///
+    /// * `vss_path` - VSS signal path to unsubscribe
+    ///
+    /// # Returns
+    ///
+    /// * `Result<()>` - Success or error result
+    #[cfg(feature = "vss")]
+    pub async fn unsubscribe_vss_signal(&mut self, vss_path: String) -> Result<()> {
+        if let Some(ref mut vss_manager) = self.vss_manager {
+            vss_manager.remove_subscription(&vss_path).await
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Get list of active VSS subscriptions
+    ///
+    /// # Returns
+    ///
+    /// Vector of subscribed VSS paths
+    #[cfg(feature = "vss")]
+    pub fn list_vss_subscriptions(&self) -> Vec<String> {
+        if let Some(ref vss_manager) = self.vss_manager {
+            vss_manager.list_subscriptions()
+        } else {
+            Vec::new()
+        }
     }
 }
 //Unit tests for VehicleManager
