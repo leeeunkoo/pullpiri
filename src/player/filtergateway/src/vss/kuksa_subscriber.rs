@@ -19,6 +19,8 @@ use tokio::sync::RwLock;
 use kuksa_rust_sdk::kuksa::common::ClientTraitV2;
 use kuksa_rust_sdk::kuksa::val::v2::KuksaClientV2;
 
+use common::logd;
+
 use super::types::{VssError, VssTrigger, VssValue};
 
 /// Kuksa.val Databroker VSS subscriber
@@ -54,7 +56,7 @@ impl VssSubscriber {
     /// Integration tests for this method require a running Kuksa.val Databroker instance.
     /// Unit tests verify the core type conversion logic via `extract_value` tests.
     pub async fn new(databroker_uri: &str) -> Result<Self, VssError> {
-        tracing::info!(
+        logd!(1,
             "Creating VssSubscriber for Databroker at {}",
             databroker_uri
         );
@@ -64,7 +66,7 @@ impl VssSubscriber {
 
         let client = KuksaClientV2::new(uri);
 
-        tracing::info!("VssSubscriber created successfully");
+        logd!(1, "VssSubscriber created successfully");
 
         Ok(Self {
             client,
@@ -95,11 +97,11 @@ impl VssSubscriber {
         trigger_sender: Sender<VssTrigger>,
     ) -> Result<(), VssError> {
         if vss_paths.is_empty() {
-            tracing::info!("No VSS paths to subscribe");
+            logd!(1, "No VSS paths to subscribe");
             return Ok(());
         }
 
-        tracing::info!(
+        logd!(1,
             "Subscribing to {} VSS paths: {:?}",
             vss_paths.len(),
             vss_paths
@@ -118,7 +120,7 @@ impl VssSubscriber {
 
                 // Spawn background task to receive messages
                 tokio::task::spawn(async move {
-                    tracing::debug!(
+                    logd!(2,
                         "VSS subscription stream started for paths: {:?}",
                         paths_for_log
                     );
@@ -134,25 +136,25 @@ impl VssSubscriber {
                                             timestamp: SystemTime::now(),
                                         };
 
-                                        tracing::debug!(
+                                        logd!(2,
                                             "VSS trigger: {} = {:?}",
                                             path,
                                             trigger.value
                                         );
 
                                         if let Err(e) = trigger_sender.send(trigger).await {
-                                            tracing::warn!("Failed to send VSS trigger: {}", e);
+                                            logd!(1, "Failed to send VSS trigger: {}", e);
                                             break;
                                         }
                                     }
                                 }
                             }
                             Ok(None) => {
-                                tracing::info!("VSS subscription stream ended");
+                                logd!(1, "VSS subscription stream ended");
                                 break;
                             }
                             Err(e) => {
-                                tracing::error!("VSS subscription error: {}", e);
+                                logd!(1, "VSS subscription error: {}", e);
                                 break;
                             }
                         }
@@ -162,7 +164,7 @@ impl VssSubscriber {
                 Ok(())
             }
             Err(e) => {
-                tracing::error!("Failed to subscribe to VSS paths: {}", e);
+                logd!(1, "Failed to subscribe to VSS paths: {}", e);
                 Err(VssError::Subscribe(format!("{}", e)))
             }
         }
@@ -183,12 +185,12 @@ impl VssSubscriber {
     /// Integration tests require a running Kuksa.val Databroker instance.
     #[allow(dead_code)]
     pub async fn get_value(&mut self, path: &str) -> Option<VssValue> {
-        tracing::debug!("Getting VSS value for: {}", path);
+        logd!(2, "Getting VSS value for: {}", path);
 
         match self.client.get_values(vec![path.to_string()]).await {
             Ok(response) => response.first().and_then(Self::extract_value),
             Err(e) => {
-                tracing::warn!("Failed to get VSS value for {}: {}", path, e);
+                logd!(1, "Failed to get VSS value for {}: {}", path, e);
                 None
             }
         }

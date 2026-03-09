@@ -190,7 +190,27 @@ impl FilterGatewayManager {
                     match param.action {
                         0 => {
                             // Allow
-                            // Subscribe to vehicle data
+                            logd!(1, "📥 Scenario registered via uProtocol: {}", param.scenario.get_name());
+                            
+                            // Check if scenario uses VSS or DDS
+                            if let Some(condition) = param.scenario.get_conditions() {
+                                let operand_type = condition.get_operand_type();
+                                let operand_value = condition.get_operand_value();
+                                
+                                logd!(1, "   Condition - Type: {}, Signal: {}", operand_type, operand_value);
+                                
+                                if operand_type.to_uppercase() == "VSS" {
+                                    logd!(1, "   ✅ VSS scenario detected - VSS path: {}", operand_value);
+                                    // TODO: Add VSS subscription logic here
+                                    // For now, just log and skip DDS subscription
+                                    self.launch_scenario_filter(param.scenario).await?;
+                                    continue;
+                                } else {
+                                    logd!(1, "   ℹ️  DDS scenario - proceeding with DDS subscription", );
+                                }
+                            }
+                            
+                            // Subscribe to vehicle data (DDS)
                             let topic_name = param
                                 .scenario
                                 .get_conditions()

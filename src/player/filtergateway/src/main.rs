@@ -35,7 +35,7 @@ use common::logd::logger;
 // [VSS Integration] Conditional imports
 // ========================================
 #[cfg(feature = "vss")]
-use vss::VssSubscriber;
+use vss::{VssSubscriber, VssTrigger};
 
 #[cfg(not(feature = "tarpaulin_include"))]
 #[tokio::main]
@@ -87,31 +87,22 @@ fn main() {
 async fn initialize_vss_integration() -> Option<VssSubscriber> {
     // Check if VSS is enabled via environment variable
     if let Ok(databroker_uri) = std::env::var("KUKSA_DATABROKER_URI") {
-        tracing::info!("VSS integration enabled: {}", databroker_uri);
+        logd!(1, "VSS integration enabled: {}", databroker_uri);
 
         match VssSubscriber::new(&databroker_uri).await {
             Ok(subscriber) => {
-                // For now, just log that VSS is ready
-                // In a real scenario, we would extract VSS paths from loaded scenarios
-                // and subscribe to them
-                tracing::info!("VssSubscriber created successfully");
-
-                // Example of how to use it (commented out as we need scenario integration):
-                // let vss_paths = vec!["Vehicle.Speed".to_string()];
-                // let (vss_tx, mut vss_rx) = tokio::sync::mpsc::channel::<VssTrigger>(100);
-                // if let Err(e) = subscriber.subscribe(vss_paths, vss_tx).await {
-                //     tracing::error!("Failed to subscribe to VSS: {}", e);
-                // }
-
+                // VssSubscriber is ready - actual subscription will happen
+                // when scenarios are registered via uProtocol
+                logd!(1, "VssSubscriber created successfully - waiting for scenario registration");
                 Some(subscriber)
             }
             Err(e) => {
-                tracing::error!("Failed to create VSS subscriber: {}", e);
+                logd!(1, "Failed to create VSS subscriber: {}", e);
                 None
             }
         }
     } else {
-        tracing::info!("VSS integration disabled (KUKSA_DATABROKER_URI not set)");
+        logd!(1, "VSS integration disabled (KUKSA_DATABROKER_URI not set)");
         None
     }
 }

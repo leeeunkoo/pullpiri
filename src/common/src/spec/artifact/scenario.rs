@@ -71,6 +71,10 @@ impl Condition {
     pub fn get_operand_name(&self) -> String {
         self.operands.name.clone()
     }
+
+    pub fn get_operand_type(&self) -> String {
+        self.operands.r#type.clone()
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
