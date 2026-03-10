@@ -13,6 +13,13 @@ use up_transport_zenoh::{zenoh_config, UPTransportZenoh};
 
 use super::config::UProtocolConfig;
 
+/// Scenario status information
+#[derive(Debug, Clone, serde::Serialize)]
+struct ScenarioStatus {
+    name: String,
+    state: String,
+}
+
 /// uProtocol Status Publisher
 pub struct StatusPublisher {
     transport: Arc<UPTransportZenoh>,
@@ -100,22 +107,89 @@ impl StatusPublisher {
 
     pub async fn publish_status(&self) -> Result<(), Box<dyn std::error::Error>> {
         let timestamp = chrono::Utc::now().timestamp_millis();
-        let data = format!(
-            r#"{{"vehicle_id":"{}","timestamp":{}}}"#,
-            self.vehicle_id, timestamp
-        );
+        
+        // Get scenario statuses from etcd
+        let scenarios = self.get_scenario_statuses().await;
+        
+        // Create JSON with scenario information
+        let data = serde_json::json!({
+            "vehicle_id": self.vehicle_id,
+            "timestamp": timestamp,
+            "scenarios": scenarios,
+            "scenario_count": scenarios.len()
+        });
 
-        debug!("Publishing status for vehicle: {}", self.vehicle_id);
+         debug!("Publishing status for vehicle: {} with {} scenarios", 
+             self.vehicle_id, scenarios.len());
+            println!("Publishing pullpiri status JSON: {}", data);
 
         // Get the topic URI for this resource
         let topic_uri = self.uri_provider.get_resource_uri(self.resource_id);
 
         // Build and send the message
         let umessage = UMessageBuilder::publish(topic_uri)
-            .build_with_payload(data, UPayloadFormat::UPAYLOAD_FORMAT_JSON)?;
+            .build_with_payload(data.to_string(), UPayloadFormat::UPAYLOAD_FORMAT_JSON)?;
 
         self.transport.send(umessage).await?;
 
         Ok(())
+    }
+
+    /// Get all scenario statuses from etcd
+    async fn get_scenario_statuses(&self) -> Vec<ScenarioStatus> {
+        match common::etcd::get_all_with_prefix("Scenario").await {
+            Ok(kv_pairs) => {
+                let mut statuses = Vec::new();
+                
+                for (key, value) in kv_pairs {
+                    // Parse scenario name from key (format: "Scenario/{scenario_name}")
+                    let scenario_name = key.strip_prefix("Scenario/")
+                        .unwrap_or(&key)
+                        .to_string();
+                    
+                    // Try to get state from StateManager
+                    let state = match self.get_scenario_state(&scenario_name).await {
+                        Ok(s) => s,
+                        Err(_) => {
+                            // Parse YAML to check if scenario exists
+                            if !value.trim().is_empty() {
+                                "idle".to_string()
+                            } else {
+                                continue;
+                            }
+                        }
+                    };
+                    
+                    statuses.push(ScenarioStatus {
+                        name: scenario_name,
+                        state,
+                    });
+                }
+                
+                statuses
+            }
+            Err(e) => {
+                debug!("Failed to get scenarios from etcd: {}", e);
+                Vec::new()
+            }
+        }
+    }
+
+    /// Get scenario state from StateManager etcd
+    async fn get_scenario_state(&self, scenario_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+        let key = format!("statemanager/scenario/{}", scenario_name);
+        
+        match common::etcd::get(&key).await {
+            Ok(value) => {
+                // Parse state from JSON
+                if let Ok(state_json) = serde_json::from_str::<serde_json::Value>(&value) {
+                    if let Some(state) = state_json.get("current_state").and_then(|s| s.as_str()) {
+                        return Ok(state.to_string());
+                    }
+                }
+                Ok("unknown".to_string())
+            }
+            _ => Ok("idle".to_string())
+        }
     }
 }
