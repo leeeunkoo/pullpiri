@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: Copyright 2024 LG Electronics Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Tracking Issue (Merged PR)
+description: Retroactively document a merged pull request that had no linked issue.
+title: "[Tracking] "
+labels: ["tracking", "needs-info"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to create a tracking issue for a pull request that was merged without a linked issue.
+        Fill in all sections to provide full context for the work that was done.
+
+  - type: input
+    id: pr_reference
+    attributes:
+      label: Merged Pull Request
+      description: Link to the merged PR (e.g. `#9`)
+      placeholder: "#9"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_changed
+    attributes:
+      label: What Was Changed
+      description: Summarize the changes introduced by the pull request.
+      placeholder: |
+        - Added X module
+        - Modified Y to support Z
+        - Removed deprecated W
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation / Context
+      description: Why was this change needed? What problem does it solve?
+      placeholder: Describe the background and motivation for the change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: What conditions must be met for this issue to be considered resolved?
+      value: |
+        - [ ] 
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: testing
+    attributes:
+      label: Testing
+      options:
+        - label: Unit tests added or updated
+        - label: Integration tests added or updated
+        - label: Manual verification steps documented
+
+  - type: checkboxes
+    id: documentation
+    attributes:
+      label: Documentation
+      options:
+        - label: README updated if needed
+        - label: Architecture docs updated if needed
